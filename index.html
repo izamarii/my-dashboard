@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="sk">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta name="theme-color" content="#c9a84c"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+  <meta name="apple-mobile-web-app-title" content="Dashboard"/>
+  <link rel="manifest" href="manifest.json"/>
+  <link rel="apple-touch-icon" href="icon.png"/>
+  <title>Môj Dashboard</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #f0e8d8; font-family: sans-serif; }
+    input, button { font-family: sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js');
+    }
+  </script>
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+const C = {
+  bg:"#f5f0e8", card:"#faf7f2", accent:"#b8965a", accentLight:"#f0e8d8",
+  mint:"#8a9e8a", mintLight:"#e8ede8", lav:"#9e8a7a", lavLight:"#ede8e3",
+  peach:"#c4a882", peachLight:"#f5ede0", text:"#2e2416", muted:"#9a8a72",
+  border:"#e0d4bc", gold:"#c9a84c", goldLight:"#fdf6e3",
+  pinkLight:"#f5f0e8", smoke:"#f8f4ee",
+};
+
+const TASK_COLORS = [
+  {id:"rose",  color:"#c9a0a8", bg:"#f8f0f2"},
+  {id:"mint",  color:"#8aaa96", bg:"#eef5f0"},
+  {id:"lav",   color:"#a096bc", bg:"#f2f0f8"},
+  {id:"peach", color:"#c4aa80", bg:"#f8f3e8"},
+  {id:"blue",  color:"#8aaabe", bg:"#eef4f8"},
+];
+const getTC = id => TASK_COLORS.find(c => c.id === id) || TASK_COLORS[0];
+
+function useStorage(key, def) {
+  const [v, setV] = useState(def);
+  const loaded = useRef(false);
+  useEffect(() => {
+    if (!loaded.current) {
+      loaded.current = true;
+      try { const s = localStorage.getItem(key); if (s) setV(JSON.parse(s)); } catch {}
+    }
+  }, [key]);
+  useEffect(() => {
+    if (loaded.current) { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} }
+  }, [key, v]);
+  return [v, setV];
+}
+
+const SK_MONTHS = ["Január","Február","Marec","Apríl","Máj","Jún","Júl","August","September","Október","November","December"];
+const SK_DAYS_LONG = ["Nedeľa","Pondelok","Utorok","Streda","Štvrtok","Piatok","Sobota"];
+const SK_DAYS_SHORT = ["Po","Ut","St","Št","Pi","So","Ne"];
+const REPEAT_LABELS = { daily:"Denne", weekly:"Týždenne", custom:"Vlastné" };
+const DOW_LABELS = ["Ne","Po","Ut","St","Št","Pi","So"];
+
+const SK_NAMES = {"1-2":"Štefánia","1-3":"Daniela","1-5":"Andrea","1-6":"Kaspar","1-9":"Alexej","1-10":"Dáša","1-14":"Radovan","1-16":"Kristína","1-20":"Dalibor","1-21":"Vincent","1-22":"Zora","1-23":"Miloš","1-24":"Timotej","1-26":"Tamara","1-28":"Alfonz","1-30":"Ema","1-31":"Erika","2-1":"Brigita","2-3":"Blažej","2-4":"Veronika","2-5":"Agáta","2-6":"Dorota","2-9":"Zdenko","2-10":"Gabriela","2-13":"Valér","2-14":"Valentín","2-16":"Ida","2-17":"Miloslava","2-19":"Vlasta","2-20":"Lívia","2-23":"Roman","2-24":"Matej","2-25":"Frederik","2-27":"Alexander","2-28":"Zlatica","3-1":"Albín","3-4":"Kazimír","3-7":"Tomáš","3-8":"Alan","3-10":"Branislav","3-12":"Gregor","3-14":"Matilda","3-15":"Svetlana","3-17":"Ľubica","3-18":"Eduard","3-19":"Jozef","3-23":"Adrián","3-24":"Gabriel","3-25":"Marián","3-27":"Alena","3-28":"Soňa","3-29":"Miroslav","3-31":"Benjamín","4-1":"Hugo","4-3":"Richard","4-5":"Miroslava","4-7":"Zoltán","4-8":"Albert","4-9":"Milena","4-10":"Igor","4-14":"Tibor","4-16":"Dana","4-17":"Rudolf","4-20":"Marcel","4-23":"Vojtech","4-24":"Juraj","4-25":"Marek","4-27":"Jaroslav","4-28":"Jarmila","4-29":"Lea","4-30":"Anastázia","5-1":"Žitomír","5-4":"Florián","5-7":"Monika","5-8":"Ingrida","5-10":"Viktória","5-15":"Žofia","5-17":"Gizela","5-18":"Viola","5-22":"Júlia","5-24":"Ela","5-26":"Dušan","5-27":"Iveta","5-29":"Marta","5-31":"Petronela","6-1":"Žaneta","6-3":"Karolína","6-4":"Lenka","6-5":"Laura","6-7":"Róbert","6-9":"Stanislava","6-10":"Margaréta","6-13":"Anton","6-16":"Blanka","6-20":"Valéria","6-21":"Alojz","6-22":"Paulína","6-24":"Ján","6-27":"Ladislav","6-28":"Beáta","6-29":"Peter","6-30":"Melánia","7-1":"Diana","7-4":"Prokop","7-5":"Cyril a Metod","7-8":"Ivan","7-9":"Lýdia","7-13":"Margita","7-15":"Henrich","7-18":"Kamila","7-22":"Magdaléna","7-23":"Oľga","7-24":"Vladimír","7-25":"Jakub","7-26":"Anna","7-29":"Marta","7-31":"Ignác","8-4":"Dominik","8-8":"Oskar","8-9":"Ľubomír","8-10":"Vavrinec","8-11":"Zuzana","8-15":"Marcela","8-18":"Elena","8-21":"Jana","8-24":"Bartolomej","8-27":"Silvia","8-29":"Nikola","8-30":"Ružena","8-31":"Nora","9-1":"Ľudmila","9-4":"Rozália","9-5":"Regína","9-7":"Marianna","9-8":"Miriama","9-9":"Martina","9-12":"Mária","9-15":"Jolana","9-21":"Matúš","9-23":"Zdenka","9-25":"Vladislav","9-28":"Václav","9-29":"Michal","9-30":"Jarolím","10-1":"Arnold","10-4":"František","10-5":"Viera","10-7":"Eliška","10-15":"Tereza","10-18":"Lukáš","10-20":"Vendelín","10-26":"Demeter","10-31":"Aurélia","11-1":"Renáta","11-4":"Karol","11-11":"Martin","11-13":"Stanislav","11-15":"Leopold","11-17":"Klaudia","11-19":"Alžbeta","11-22":"Cecília","11-25":"Katarína","11-30":"Ondrej","12-2":"Bibiána","12-4":"Barbora","12-6":"Mikuláš","12-8":"Marína","12-13":"Lucia","12-24":"Štedrý večer","12-25":"Štefan","12-26":"Štefan","12-31":"Silvester"};
+const SK_HOLIDAYS = {"1-1":"Nový rok","1-6":"Traja králi","5-1":"Sviatok práce","5-8":"Deň víťazstva","7-5":"Cyril a Metod","8-29":"SNP","9-1":"Deň Ústavy","9-15":"Sedembolestná","11-1":"Všetkých svätých","11-17":"Deň boja za slobodu","12-24":"Štedrý večer","12-25":"Vianoce","12-26":"Štefan"};
+
+const STOIC_QUOTES = [
+  {text:"Šťastie závisí od teba samého.",author:"Marcus Aurelius"},
+  {text:"Čas je jediné, čo ti skutočne patrí.",author:"Seneca"},
+  {text:"Nič nie je naše okrem vôle.",author:"Epiktétos"},
+  {text:"Každá prekážka skrýva cestu.",author:"Marcus Aurelius"},
+  {text:"Staraj sa o to, čo závisí od teba.",author:"Epiktétos"},
+  {text:"Múdrosť začína tam, kde prestáva strach.",author:"Seneca"},
+  {text:"Sloboda nie je v tom čo máš, ale v tom čo nepotrebuješ.",author:"Epiktétos"},
+  {text:"Každá ťažkosť je príležitosť pre cnosť.",author:"Marcus Aurelius"},
+  {text:"Konaj dobre, aj keď ťa nikto nevidí.",author:"Marcus Aurelius"},
+  {text:"Pokojný duch je najvyššia odmena.",author:"Seneca"},
+  {text:"Prestaň čakať a začni žiť.",author:"Seneca"},
+  {text:"Každé ráno vstávaj s rozhodnutím byť lepší.",author:"Marcus Aurelius"},
+  {text:"Kto ovláda seba, ovláda všetko.",author:"Marcus Aurelius"},
+  {text:"Trpezlivosť je matkou všetkých cností.",author:"Seneca"},
+  {text:"Vždy je čas začať odznova.",author:"Marcus Aurelius"},
+  {text:"Každý deň je malý život.",author:"Seneca"},
+  {text:"Nehľadaj šťastie vonku, je v tebe.",author:"Marcus Aurelius"},
+  {text:"Najlepší čas na konanie je teraz.",author:"Seneca"},
+  {text:"Mlčanie je niekedy najsilnejšia odpoveď.",author:"Marcus Aurelius"},
+  {text:"Radosť pochádza zvnútra, nie zvonka.",author:"Seneca"},
+];
+
+const getDailyQuote = () => {
+  const n = new Date(), s = new Date(n.getFullYear(), 0, 0);
+  return STOIC_QUOTES[Math.floor((n - s) / 86400000) % STOIC_QUOTES.length];
+};
+
+const toISO = d => d.toISOString().split("T")[0];
+const todayStr = () => toISO(new Date());
+const monOffset = dow => (dow + 6) % 7;
+const habitDueToday = (h, dateStr) => {
+  const d = new Date(dateStr + "T12:00"), dow = d.getDay();
+  if (h.repeat === "daily") return true;
+  if (h.repeat === "weekly") { const c = new Date((h.createdAt || dateStr) + "T12:00"); return Math.floor((d - c) / 86400000) % 7 === 0; }
+  if (h.repeat === "custom" && h.days) return h.days.includes(dow);
+  return true;
+};
+
+function SmokeHeader({ dateLabel, todayName, quote }) {
+  return (
+    <div style={{position:"relative",overflow:"hidden",padding:"36px 24px 56px",textAlign:"center",background:"linear-gradient(160deg,#f0e8d8 0%,#e8dcc8 40%,#f0ead8 100%)"}}>
+      <svg style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",pointerEvents:"none"}} viewBox="0 0 480 160" preserveAspectRatio="xMidYMid slice">
+        <defs>
+          <filter id="blur1"><feGaussianBlur stdDeviation="12"/></filter>
+          <filter id="blur2"><feGaussianBlur stdDeviation="18"/></filter>
+          <filter id="blur3"><feGaussianBlur stdDeviation="8"/></filter>
+        </defs>
+        <ellipse cx="80" cy="90" rx="120" ry="55" fill="#d4c4a8" opacity="0.35" filter="url(#blur2)"/>
+        <ellipse cx="400" cy="70" rx="130" ry="50" fill="#c8b898" opacity="0.30" filter="url(#blur2)"/>
+        <ellipse cx="240" cy="130" rx="180" ry="45" fill="#ddd0b8" opacity="0.28" filter="url(#blur2)"/>
+        <ellipse cx="60" cy="50" rx="80" ry="30" fill="#e8dcc8" opacity="0.55" filter="url(#blur1)"/>
+        <ellipse cx="160" cy="30" rx="100" ry="25" fill="#ede4d0" opacity="0.50" filter="url(#blur1)"/>
+        <ellipse cx="320" cy="40" rx="110" ry="28" fill="#e8dcc8" opacity="0.48" filter="url(#blur1)"/>
+        <ellipse cx="440" cy="60" rx="75" ry="32" fill="#ede4d0" opacity="0.52" filter="url(#blur1)"/>
+        <ellipse cx="30" cy="110" rx="60" ry="14" fill="#d8cbb0" opacity="0.40" filter="url(#blur3)"/>
+        <ellipse cx="200" cy="105" rx="75" ry="12" fill="#e0d4bc" opacity="0.38" filter="url(#blur3)"/>
+        <ellipse cx="380" cy="115" rx="65" ry="13" fill="#d8cbb0" opacity="0.36" filter="url(#blur3)"/>
+        <line x1="0" y1="158" x2="480" y2="158" stroke="#c9a84c" strokeWidth="0.5" opacity="0.4"/>
+      </svg>
+      <div style={{position:"relative",fontSize:10,fontWeight:700,color:"#a08858",textTransform:"uppercase",letterSpacing:3,marginBottom:16}}>
+        {dateLabel}{todayName && <span style={{marginLeft:10,color:"#c9a84c"}}>· {todayName}</span>}
+      </div>
+      <div style={{position:"relative",fontFamily:"Georgia,serif",fontStyle:"italic",fontSize:21,color:"#3a2e1e",lineHeight:1.7,maxWidth:320,margin:"0 auto",letterSpacing:0.3}}>
+        {quote.text}
+      </div>
+      <div style={{position:"relative",marginTop:12,fontSize:11,fontWeight:600,color:"#c9a84c",letterSpacing:2}}>— {quote.author}</div>
+      <div style={{position:"relative",marginTop:5,fontSize:9,color:"#b09870",letterSpacing:3,textTransform:"uppercase"}}>Stoický výrok dňa</div>
+    </div>
+  );
+}
+
+function Confetti({ trigger }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!trigger) return;
+    const canvas = ref.current; if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight;
+    const pieces = Array.from({ length: 24 }, () => ({
+      x: canvas.width * 0.3 + Math.random() * canvas.width * 0.4,
+      y: canvas.height * 0.2 + Math.random() * canvas.height * 0.3,
+      r: 1.5 + Math.random() * 2, dx: (Math.random() - 0.5) * 2, dy: -1 - Math.random() * 2,
+      alpha: 1, gravity: 0.05,
+      color: ["#c9a84c","#b8965a","#d4b896","#a09070","#e8d8b8","#c4aa80"][Math.floor(Math.random() * 6)]
+    }));
+    let raf;
+    const draw = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height); let alive = false;
+      pieces.forEach(p => { p.x += p.dx; p.y += p.dy; p.dy += p.gravity; p.alpha -= 0.02;
+        if (p.alpha > 0) { alive = true; ctx.globalAlpha = p.alpha; ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill(); }
+      });
+      ctx.globalAlpha = 1;
+      if (alive) raf = requestAnimationFrame(draw); else ctx.clearRect(0, 0, canvas.width, canvas.height);
+    };
+    draw(); return () => cancelAnimationFrame(raf);
+  }, [trigger]);
+  return React.createElement('canvas', {ref, style:{position:"absolute",inset:0,width:"100%",height:"100%",pointerEvents:"none",borderRadius:"inherit",zIndex:10}});
+}
+
+function Modal({ title, onClose, children }) {
+  return (
+    <div style={{position:"fixed",inset:0,background:"rgba(20,14,8,.40)",zIndex:1000,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={onClose}>
+      <div style={{background:C.card,borderRadius:"24px 24px 0 0",width:"100%",maxWidth:500,maxHeight:"92vh",overflowY:"auto",padding:"24px 20px 32px"}} onClick={e => e.stopPropagation()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <span style={{fontWeight:700,fontSize:16,color:C.gold,letterSpacing:0.5}}>{title}</span>
+          <button onClick={onClose} style={{background:C.border,border:"none",borderRadius:10,width:30,height:30,cursor:"pointer",fontSize:15,color:C.muted}}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Bar({ pct, color }) {
+  return (
+    <div style={{background:C.border,borderRadius:999,height:5,overflow:"hidden",flex:1}}>
+      <div style={{width:`${pct}%`,background:color,height:"100%",borderRadius:999,transition:"width .4s"}}/>
+    </div>
+  );
+}
+
+const inputStyle = {width:"100%",border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,marginBottom:8,boxSizing:"border-box",background:"#faf7f2",color:C.text,outline:"none"};
+
+function TaskForm({ initial, onSave, onCancel }) {
+  const [f, setF] = useState({ text:"", note:"", date:"", timeFrom:"", timeTo:"", colorId:"rose", ...(initial || {}) });
+  const upd = k => e => setF(x => ({ ...x, [k]:e.target.value }));
+  return (
+    <div style={{background:C.accentLight,borderRadius:16,padding:14,marginBottom:12}}>
+      <input type="text" value={f.text} onChange={upd("text")} placeholder="Názov úlohy" style={inputStyle}/>
+      <input type="text" value={f.note} onChange={upd("note")} placeholder="Poznámka" style={inputStyle}/>
+      <input type="date" value={f.date} onChange={upd("date")} style={inputStyle}/>
+      <div style={{display:"flex",gap:8,marginBottom:10}}>
+        <input type="time" value={f.timeFrom} onChange={upd("timeFrom")} style={{flex:1,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,background:"#faf7f2",color:C.text,outline:"none"}}/>
+        <input type="time" value={f.timeTo} onChange={upd("timeTo")} style={{flex:1,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,background:"#faf7f2",color:C.text,outline:"none"}}/>
+      </div>
+      <div style={{fontSize:10,color:C.muted,marginBottom:6,letterSpacing:1,textTransform:"uppercase"}}>Farba</div>
+      <div style={{display:"flex",gap:8,marginBottom:12}}>
+        {TASK_COLORS.map(tc => <div key={tc.id} onClick={() => setF(x => ({ ...x, colorId:tc.id }))} style={{width:24,height:24,borderRadius:"50%",background:tc.color,cursor:"pointer",border:f.colorId === tc.id ? `2.5px solid ${C.gold}` : "2.5px solid transparent",opacity:0.85}}/>)}
+      </div>
+      <div style={{display:"flex",gap:8}}>
+        <button onClick={() => f.text.trim() && onSave(f)} style={{flex:1,background:C.gold,border:"none",borderRadius:10,padding:"9px",color:"#faf7f2",fontWeight:700,fontSize:13,cursor:"pointer"}}>Uložiť</button>
+        <button onClick={onCancel} style={{background:C.border,border:"none",borderRadius:10,padding:"9px 14px",cursor:"pointer",color:C.muted,fontWeight:600}}>Zrušiť</button>
+      </div>
+    </div>
+  );
+}
+
+function DayDetail({ date, onClose }) {
+  const [tasks, setTasks] = useStorage("tasks", []);
+  const [habits, setHabits] = useStorage("habits", []);
+  const [challenges, setChallenges] = useStorage("challenges", []);
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [confetti, setConfetti] = useState(0);
+  const d = new Date(date + "T12:00");
+  const key = `${d.getMonth()+1}-${d.getDate()}`;
+  const label = `${SK_DAYS_LONG[d.getDay()]} ${d.getDate()}. ${SK_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+  const holiday = SK_HOLIDAYS[key] || "";
+  const nameDay = SK_NAMES[key] || "";
+  const dayTasks = tasks.filter(t => t.date === date);
+  const dayHabits = habits.filter(h => habitDueToday(h, date));
+  const weekStart = (() => { const dd = new Date(date + "T12:00"); dd.setDate(dd.getDate() - monOffset(dd.getDay())); return toISO(dd); })();
+  const dayChallenges = challenges.filter(c => c.week === weekStart);
+  const doneAll = dayHabits.filter(h => h.checks && h.checks[date]).length + dayTasks.filter(t => t.done).length + dayChallenges.filter(c => c.done).length;
+  const totalAll = dayHabits.length + dayTasks.length + dayChallenges.length;
+  const pct = totalAll ? Math.round((doneAll / totalAll) * 100) : 0;
+  const pop = () => setConfetti(x => x + 1);
+  const toggleHabit = id => { setHabits(hs => hs.map(h => { if (h.id !== id) return h; const checks = { ...(h.checks || {}) }; checks[date] = !checks[date]; let streak = 0, dd = new Date(); while (true) { const k = toISO(dd); if (checks[k]) { streak++; dd.setDate(dd.getDate() - 1); } else break; } return { ...h, checks, streak }; })); pop(); };
+  const toggleTask = id => { setTasks(ts => ts.map(t => t.id === id ? { ...t, done:!t.done } : t)); pop(); };
+  const toggleChallenge = id => { setChallenges(cs => cs.map(c => c.id === id ? { ...c, done:!c.done } : c)); pop(); };
+  const addTask = f => { setTasks(t => [...t, { id:Date.now(), ...f, text:f.text.trim(), done:false, date }]); setShowAddTask(false); };
+  return (
+    <Modal title={label} onClose={onClose}>
+      <div style={{position:"relative"}}>
+        <Confetti trigger={confetti}/>
+        {(holiday || nameDay) && <div style={{background:C.accentLight,borderRadius:10,padding:"8px 12px",marginBottom:14,fontSize:12,color:C.accent}}>{holiday && <div>Sviatok: <b>{holiday}</b></div>}{nameDay && <div>Meniny: <b style={{color:C.gold}}>{nameDay}</b></div>}</div>}
+        {totalAll > 0 && <div style={{marginBottom:18}}><div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}><Bar pct={pct} color={C.gold}/><span style={{fontWeight:700,fontSize:14,color:C.gold,minWidth:36}}>{pct}%</span></div><div style={{fontSize:10,color:C.muted}}>{doneAll} z {totalAll} splnených</div></div>}
+        {[["Návyky", dayHabits, (h,done) => <div key={h.id} onClick={() => toggleHabit(h.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:12,background:done?C.accentLight:C.bg,marginBottom:5,cursor:"pointer"}}><div style={{width:20,height:20,borderRadius:6,border:`1.5px solid ${done?C.gold:C.border}`,background:done?C.gold:"#faf7f2",display:"flex",alignItems:"center",justifyContent:"center",color:"#faf7f2",fontSize:11,flexShrink:0}}>{done?"✓":""}</div><span style={{fontSize:13,flex:1,color:done?C.muted:C.text,textDecoration:done?"line-through":"none"}}>{h.name}</span></div>],].map(([label, items, render]) => (
+          <div key={label} style={{marginBottom:18}}>
+            <div style={{fontSize:9,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:2,marginBottom:8}}>{label}</div>
+            {items.length === 0 && <div style={{fontSize:12,color:C.muted}}>Žiadne</div>}
+            {items.map(h => render(h, !!(h.checks && h.checks[date])))}
+          </div>
+        ))}
+        <div style={{marginBottom:18}}>
+          <div style={{fontSize:9,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:2,marginBottom:8}}>Úlohy</div>
+          {dayTasks.map(t => { const tc = getTC(t.colorId); return <div key={t.id} onClick={() => toggleTask(t.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:12,background:t.done?tc.bg:C.bg,marginBottom:5,cursor:"pointer"}}><div style={{width:20,height:20,borderRadius:6,border:`1.5px solid ${t.done?tc.color:C.border}`,background:t.done?tc.color:"#faf7f2",display:"flex",alignItems:"center",justifyContent:"center",color:"#faf7f2",fontSize:11,flexShrink:0}}>{t.done?"✓":""}</div><div style={{flex:1}}><div style={{fontSize:13,textDecoration:t.done?"line-through":"none",color:t.done?C.muted:C.text}}>{t.text}</div>{(t.timeFrom||t.timeTo)&&<div style={{fontSize:10,color:C.muted}}>{t.timeFrom}{t.timeTo?` – ${t.timeTo}`:""}</div>}</div></div>; })}
+          {showAddTask ? <TaskForm onSave={addTask} onCancel={() => setShowAddTask(false)}/> : <button onClick={() => setShowAddTask(true)} style={{width:"100%",background:"transparent",border:`1px dashed ${C.border}`,borderRadius:10,padding:"8px",cursor:"pointer",color:C.gold,fontSize:12,fontWeight:600,marginTop:4}}>+ Pridať úlohu</button>}
+        </div>
+        <div style={{marginBottom:10}}>
+          <div style={{fontSize:9,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:2,marginBottom:8}}>Výzvy</div>
+          {dayChallenges.length === 0 && <div style={{fontSize:12,color:C.muted}}>Žiadne</div>}
+          {dayChallenges.map(c => { const done = c.done; return <div key={c.id} onClick={() => toggleChallenge(c.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:12,background:done?C.lavLight:C.bg,marginBottom:5,cursor:"pointer"}}><div style={{width:20,height:20,borderRadius:6,border:`1.5px solid ${done?C.gold:C.border}`,background:done?C.gold:"#faf7f2",display:"flex",alignItems:"center",justifyContent:"center",color:"#faf7f2",fontSize:11,flexShrink:0}}>{done?"✓":""}</div><span style={{fontSize:13,flex:1,textDecoration:done?"line-through":"none",color:done?C.muted:C.text}}>{c.text}</span></div>; })}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function Calendar() {
+  const now = new Date();
+  const [view, setView] = useState({ y:now.getFullYear(), m:now.getMonth() });
+  const [sel, setSel] = useState(null);
+  const [tasks] = useStorage("tasks", []);
+  const [habits] = useStorage("habits", []);
+  const firstDow = new Date(view.y, view.m, 1).getDay();
+  const offset = monOffset(firstDow);
+  const dim = new Date(view.y, view.m + 1, 0).getDate();
+  const cells = [...Array(offset).fill(null), ...Array.from({ length:dim }, (_, i) => i + 1)];
+  const ds = d => `${view.y}-${String(view.m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  const isToday = d => d === now.getDate() && view.m === now.getMonth() && view.y === now.getFullYear();
+  const getTasksForDay = d => tasks.filter(t => t.date === ds(d));
+  const hasHabit = d => habits.some(h => habitDueToday(h, ds(d)));
+  return (
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+        <button onClick={() => setView(v => { const d = new Date(v.y, v.m-1, 1); return { y:d.getFullYear(), m:d.getMonth() }; })} style={{background:C.accentLight,border:"none",borderRadius:10,width:34,height:34,cursor:"pointer",fontSize:16,color:C.accent}}>‹</button>
+        <span style={{fontWeight:700,fontSize:14,color:C.gold,letterSpacing:1}}>{SK_MONTHS[view.m]} {view.y}</span>
+        <button onClick={() => setView(v => { const d = new Date(v.y, v.m+1, 1); return { y:d.getFullYear(), m:d.getMonth() }; })} style={{background:C.accentLight,border:"none",borderRadius:10,width:34,height:34,cursor:"pointer",fontSize:16,color:C.accent}}>›</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
+        {SK_DAYS_SHORT.map((d, i) => <div key={i} style={{textAlign:"center",fontSize:9,fontWeight:700,color:i>=5?C.gold:C.muted,padding:"2px 0",letterSpacing:0.5}}>{d}</div>)}
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:3}}>
+        {cells.map((d, i) => {
+          if (!d) return <div key={i}/>;
+          const tod = isToday(d), hol = SK_HOLIDAYS[`${view.m+1}-${d}`];
+          const dayTasks = getTasksForDay(d), habit = hasHabit(d);
+          return (
+            <div key={i} onClick={() => setSel(ds(d))} style={{borderRadius:8,padding:"4px 3px 5px",cursor:"pointer",background:tod?C.gold:hol?"#f0e8d4":"transparent",color:tod?"#faf7f2":hol?C.accent:C.text,minHeight:48}}>
+              <div style={{textAlign:"center",fontSize:12,fontWeight:tod?700:400,marginBottom:2}}>{d}</div>
+              <div style={{display:"flex",flexDirection:"column",gap:1,paddingLeft:2,paddingRight:2}}>
+                {dayTasks.slice(0,2).map(t => { const tc = getTC(t.colorId); return <div key={t.id} style={{fontSize:8,background:tod?"rgba(255,255,255,0.25)":tc.bg,color:tod?"#faf7f2":tc.color,borderRadius:3,padding:"1px 3px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontWeight:600}}>{t.text}</div>; })}
+                {dayTasks.length > 2 && <div style={{fontSize:8,color:tod?"rgba(255,255,255,0.7)":C.muted,paddingLeft:2}}>+{dayTasks.length-2}</div>}
+                {habit && dayTasks.length === 0 && <div style={{width:4,height:4,borderRadius:"50%",background:tod?"rgba(255,255,255,0.7)":C.accent,margin:"2px auto 0"}}/>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {sel && <DayDetail date={sel} onClose={() => setSel(null)}/>}
+    </div>
+  );
+}
+
+function Todo() {
+  const [tasks, setTasks] = useStorage("tasks", []);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [confetti, setConfetti] = useState(0);
+  const add = f => { setTasks(t => [...t, { id:Date.now(), ...f, text:f.text.trim(), done:false }]); setShowForm(false); };
+  const save = (id, f) => { setTasks(ts => ts.map(t => t.id === id ? { ...t, ...f, text:f.text.trim() } : t)); setEditing(null); };
+  const toggle = id => { setTasks(ts => ts.map(t => t.id === id ? { ...t, done:!t.done } : t)); setConfetti(x => x+1); };
+  const del = id => setTasks(ts => ts.filter(t => t.id !== id));
+  const todo = tasks.filter(t => !t.done).sort((a,b) => (a.date||"zzz").localeCompare(b.date||"zzz"));
+  const done = tasks.filter(t => t.done);
+  return (
+    <div style={{position:"relative"}}>
+      <Confetti trigger={confetti}/>
+      <button onClick={() => setShowForm(!showForm)} style={{width:"100%",background:C.accentLight,border:`1px dashed ${C.border}`,borderRadius:12,padding:"10px",cursor:"pointer",color:C.gold,fontWeight:600,fontSize:13,marginBottom:14,letterSpacing:0.5}}>+ Pridať úlohu</button>
+      {showForm && <TaskForm onSave={add} onCancel={() => setShowForm(false)}/>}
+      {todo.length===0&&!showForm&&<div style={{textAlign:"center",color:C.muted,fontSize:12,padding:"16px 0",letterSpacing:0.5}}>Žiadne úlohy</div>}
+      {todo.map(t => { const tc = getTC(t.colorId);
+        return editing === t.id
+          ? <TaskForm key={t.id} initial={t} onSave={f => save(t.id,f)} onCancel={() => setEditing(null)}/>
+          : <div key={t.id} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",borderRadius:12,background:C.bg,marginBottom:7,borderLeft:`2px solid ${tc.color}`}}>
+              <div onClick={() => toggle(t.id)} style={{width:20,height:20,borderRadius:6,border:`1.5px solid ${C.border}`,background:"#faf7f2",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}/>
+              <div style={{flex:1,cursor:"pointer"}} onClick={() => setEditing(t.id)}>
+                <div style={{fontSize:13,fontWeight:500,color:C.text}}>{t.text}</div>
+                {t.date&&<div style={{fontSize:10,color:C.muted}}>{new Date(t.date+"T12:00").toLocaleDateString("sk-SK",{day:"numeric",month:"long"})}{t.timeFrom?` · ${t.timeFrom}`:""}{t.timeTo?` – ${t.timeTo}`:""}</div>}
+                {t.note&&<div style={{fontSize:10,color:C.muted}}>{t.note}</div>}
+              </div>
+              <button onClick={() => del(t.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:14,padding:0}}>✕</button>
+            </div>;
+      })}
+      {done.length>0&&<details><summary style={{fontSize:11,color:C.muted,cursor:"pointer",marginTop:4,letterSpacing:0.5}}>Hotové ({done.length})</summary>
+        {done.map(t=><div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 12px",borderRadius:10,opacity:.45,marginBottom:3}}>
+          <div onClick={()=>toggle(t.id)} style={{width:20,height:20,borderRadius:6,background:C.gold,display:"flex",alignItems:"center",justifyContent:"center",color:"#faf7f2",fontSize:11,cursor:"pointer",flexShrink:0}}>✓</div>
+          <span style={{flex:1,fontSize:12,textDecoration:"line-through",color:C.muted}}>{t.text}</span>
+          <button onClick={()=>del(t.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:14}}>✕</button>
+        </div>)}
+      </details>}
+    </div>
+  );
+}
+
+function Habits() {
+  const [habits, setHabits] = useStorage("habits", []);
+  const [showForm, setShowForm] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ name:"", repeat:"daily", days:[] });
+  const [editForm, setEditForm] = useState({});
+  const [confetti, setConfetti] = useState(0);
+  const tod = todayStr();
+  const toggleDay = d => setForm(f => ({ ...f, days:f.days.includes(d)?f.days.filter(x=>x!==d):[...f.days,d] }));
+  const add = () => { if (!form.name.trim()) return; setHabits(h => [...h, { id:Date.now(), name:form.name.trim(), repeat:form.repeat, days:form.days, checks:{}, streak:0, createdAt:tod }]); setForm({ name:"", repeat:"daily", days:[] }); setShowForm(false); };
+  const toggle = id => { setHabits(hs => hs.map(h => { if (h.id!==id) return h; const checks={...(h.checks||{})}; checks[tod]=!checks[tod]; let streak=0,d=new Date(); while(true){const k=toISO(d);if(checks[k]){streak++;d.setDate(d.getDate()-1);}else break;} return {...h,checks,streak}; })); setConfetti(x=>x+1); };
+  const saveEdit = id => { setHabits(hs => hs.map(h => h.id===id?{...h,...editForm}:h)); setEditing(null); };
+  const del = id => setHabits(h => h.filter(x => x.id!==id));
+  const todayHabits = habits.filter(h => habitDueToday(h, tod));
+  const doneToday = todayHabits.filter(h => h.checks&&h.checks[tod]).length;
+  const pct = todayHabits.length ? Math.round((doneToday/todayHabits.length)*100) : 0;
+  const getLast30 = h => Array.from({length:30},(_,i)=>{const d=new Date();d.setDate(d.getDate()-29+i);return{date:toISO(d),done:!!(h.checks&&h.checks[toISO(d)])};});
+  return (
+    <div style={{position:"relative"}}>
+      <Confetti trigger={confetti}/>
+      {todayHabits.length>0&&<div style={{marginBottom:14}}><div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}><Bar pct={pct} color={C.gold}/><span style={{fontWeight:700,color:C.gold,minWidth:36,fontSize:13}}>{pct}%</span></div><div style={{fontSize:10,color:C.muted,letterSpacing:0.5}}>{doneToday} z {todayHabits.length} dnes splnených</div></div>}
+      <button onClick={()=>setShowForm(!showForm)} style={{width:"100%",background:C.accentLight,border:`1px dashed ${C.border}`,borderRadius:12,padding:"10px",cursor:"pointer",color:C.gold,fontWeight:600,fontSize:13,marginBottom:14,letterSpacing:0.5}}>+ Pridať návyk</button>
+      {showForm&&<div style={{background:C.accentLight,borderRadius:16,padding:14,marginBottom:14}}>
+        <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Názov návyku" style={inputStyle}/>
+        <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>{Object.entries(REPEAT_LABELS).map(([k,v])=><button key={k} onClick={()=>setForm(f=>({...f,repeat:k}))} style={{padding:"4px 12px",borderRadius:999,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:form.repeat===k?C.gold:C.card,color:form.repeat===k?"#faf7f2":C.muted,letterSpacing:0.5}}>{v}</button>)}</div>
+        {form.repeat==="custom"&&<div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>{DOW_LABELS.map((d,i)=><button key={i} onClick={()=>toggleDay(i)} style={{width:32,height:32,borderRadius:8,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:form.days.includes(i)?C.gold:C.card,color:form.days.includes(i)?"#faf7f2":C.muted}}>{d}</button>)}</div>}
+        <div style={{display:"flex",gap:8}}><button onClick={add} style={{flex:1,background:C.gold,border:"none",borderRadius:10,padding:"9px",color:"#faf7f2",fontWeight:700,fontSize:13,cursor:"pointer"}}>Pridať</button><button onClick={()=>setShowForm(false)} style={{background:C.border,border:"none",borderRadius:10,padding:"9px 14px",cursor:"pointer",color:C.muted,fontWeight:600}}>Zrušiť</button></div>
+      </div>}
+      {habits.length===0&&<div style={{textAlign:"center",color:C.muted,fontSize:12,padding:"16px 0",letterSpacing:0.5}}>Žiadne návyky</div>}
+      {habits.map(h=>{const due=habitDueToday(h,tod),done=!!(h.checks&&h.checks[tod]),last30=getLast30(h),done30=last30.filter(x=>x.done).length;
+        return <div key={h.id} style={{padding:"12px 14px",borderRadius:16,background:done?C.accentLight:C.bg,marginBottom:8,opacity:due?1:.5}}>
+          {editing===h.id?<div>
+            <input value={editForm.name||h.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} style={{...inputStyle,marginBottom:8}}/>
+            <div style={{display:"flex",gap:8}}><button onClick={()=>saveEdit(h.id)} style={{flex:1,background:C.gold,border:"none",borderRadius:10,padding:"8px",color:"#faf7f2",fontWeight:700,cursor:"pointer"}}>Uložiť</button><button onClick={()=>setEditing(null)} style={{background:C.border,border:"none",borderRadius:10,padding:"8px 12px",cursor:"pointer",color:C.muted,fontWeight:600}}>Zrušiť</button></div>
+          </div>:<>
+            <div style={{display:"flex",alignItems:"center",gap:10}}>
+              <div onClick={()=>due&&toggle(h.id)} style={{width:22,height:22,borderRadius:7,border:`1.5px solid ${done?C.gold:C.border}`,background:done?C.gold:"#faf7f2",display:"flex",alignItems:"center",justifyContent:"center",color:"#faf7f2",fontSize:12,cursor:due?"pointer":"default",flexShrink:0}}>{done?"✓":""}</div>
+              <div style={{flex:1,cursor:"pointer"}} onClick={()=>{setEditing(h.id);setEditForm({name:h.name,repeat:h.repeat,days:h.days});}}>
+                <div style={{fontSize:13,fontWeight:500}}>{h.name}</div>
+                <div style={{fontSize:10,color:C.muted,letterSpacing:0.3}}>{REPEAT_LABELS[h.repeat]}</div>
+              </div>
+              <div style={{background:C.accentLight,borderRadius:999,padding:"2px 10px",fontSize:11,color:C.gold,fontWeight:700,border:`1px solid ${C.border}`}}>{h.streak||0}</div>
+              <button onClick={()=>del(h.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:14,padding:0}}>✕</button>
+            </div>
+            <div style={{marginTop:9,marginLeft:32}}>
+              <div style={{fontSize:9,color:C.muted,marginBottom:3,letterSpacing:0.5}}>30 dní · {done30}/30</div>
+              <div style={{display:"flex",gap:2,flexWrap:"wrap"}}>{last30.map((x,i)=><div key={i} style={{width:13,height:13,borderRadius:3,background:x.done?C.gold:C.border,opacity:x.done?0.85:0.5}}/>)}</div>
+            </div>
+          </>}
+        </div>;
+      })}
+    </div>
+  );
+}
+
+function Challenges() {
+  const [challenges, setChallenges] = useStorage("challenges", []);
+  const [text, setText] = useState("");
+  const [which, setWhich] = useState("current");
+  const [editing, setEditing] = useState(null);
+  const [editText, setEditText] = useState("");
+  const [confetti, setConfetti] = useState(0);
+  const getWeek = offset => { const d=new Date(); d.setDate(d.getDate()-monOffset(d.getDay())+offset*7); return toISO(d); };
+  const currentWeek=getWeek(0), nextWeek=getWeek(1), targetWeek=which==="next"?nextWeek:currentWeek;
+  const current=challenges.filter(c=>c.week===currentWeek), next=challenges.filter(c=>c.week===nextWeek);
+  const past=challenges.filter(c=>c.week!==currentWeek&&c.week!==nextWeek);
+  const pct=current.length?Math.round((current.filter(c=>c.done).length/current.length)*100):0;
+  const add=()=>{if(!text.trim())return;setChallenges(c=>[...c,{id:Date.now(),text:text.trim(),week:targetWeek,done:false}]);setText("");};
+  const toggle=id=>{setChallenges(cs=>cs.map(c=>c.id===id?{...c,done:!c.done}:c));setConfetti(x=>x+1);};
+  const del=id=>setChallenges(cs=>cs.filter(c=>c.id!==id));
+  const saveEdit=id=>{setChallenges(cs=>cs.map(c=>c.id===id?{...c,text:editText}:c));setEditing(null);};
+  const Row=({c,canToggle})=>editing===c.id
+    ?<div style={{display:"flex",gap:8,marginBottom:8}}><input value={editText} onChange={e=>setEditText(e.target.value)} style={{flex:1,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,background:"#faf7f2",color:C.text,outline:"none"}}/><button onClick={()=>saveEdit(c.id)} style={{background:C.gold,border:"none",borderRadius:10,padding:"8px 12px",color:"#faf7f2",fontWeight:700,cursor:"pointer"}}>✓</button><button onClick={()=>setEditing(null)} style={{background:C.border,border:"none",borderRadius:10,padding:"8px 10px",cursor:"pointer",color:C.muted}}>✕</button></div>
+    :<div style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:12,background:c.done?C.lavLight:C.bg,marginBottom:7}}>
+      <div onClick={()=>canToggle&&toggle(c.id)} style={{width:20,height:20,borderRadius:6,border:`1.5px solid ${c.done?C.gold:C.border}`,background:c.done?C.gold:"#faf7f2",display:"flex",alignItems:"center",justifyContent:"center",color:"#faf7f2",fontSize:11,cursor:canToggle?"pointer":"default",flexShrink:0,opacity:canToggle?1:0.4}}>{c.done?"✓":""}</div>
+      <span style={{flex:1,fontSize:13,textDecoration:c.done?"line-through":"none",color:c.done?C.muted:C.text,cursor:"pointer"}} onClick={()=>{setEditing(c.id);setEditText(c.text);}}>{c.text}</span>
+      <button onClick={()=>del(c.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:14}}>✕</button>
+    </div>;
+  return (
+    <div style={{position:"relative"}}>
+      <Confetti trigger={confetti}/>
+      <div style={{display:"flex",gap:3,marginBottom:14,background:C.accentLight,borderRadius:12,padding:3}}>
+        <button onClick={()=>setWhich("current")} style={{flex:1,padding:"8px 6px",borderRadius:9,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:which==="current"?C.gold:"transparent",color:which==="current"?"#faf7f2":C.muted,letterSpacing:0.5}}>Tento týždeň</button>
+        <button onClick={()=>setWhich("next")} style={{flex:1,padding:"8px 6px",borderRadius:9,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:which==="next"?C.gold:"transparent",color:which==="next"?"#faf7f2":C.muted,letterSpacing:0.5}}>Budúci týždeň</button>
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:14}}>
+        <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="Nová výzva..." style={{flex:1,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",fontSize:13,background:"#faf7f2",color:C.text,outline:"none"}}/>
+        <button onClick={add} style={{background:C.gold,border:"none",borderRadius:10,padding:"9px 14px",color:"#faf7f2",fontWeight:700,fontSize:16,cursor:"pointer"}}>+</button>
+      </div>
+      {which==="current"&&<>{current.length>0&&<div style={{marginBottom:14}}><div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}><Bar pct={pct} color={C.gold}/><span style={{fontWeight:700,color:C.gold,minWidth:36,fontSize:13}}>{pct}%</span></div></div>}{current.length===0&&<div style={{textAlign:"center",color:C.muted,fontSize:12,padding:"8px 0"}}>Žiadne výzvy</div>}{current.map(c=><Row key={c.id} c={c} canToggle={true}/>)}</>}
+      {which==="next"&&<>{next.length===0&&<div style={{textAlign:"center",color:C.muted,fontSize:12,padding:"8px 0"}}>Žiadne plánované výzvy</div>}{next.map(c=><Row key={c.id} c={c} canToggle={false}/>)}</>}
+      {past.length>0&&<details style={{marginTop:8}}><summary style={{fontSize:11,color:C.muted,cursor:"pointer",letterSpacing:0.5}}>Minulé ({past.length})</summary>{past.map(c=><div key={c.id} style={{display:"flex",alignItems:"center",gap:8,opacity:.4,marginTop:4,fontSize:12}}><span>{c.done?"✓":"–"}</span><span style={{flex:1,textDecoration:c.done?"line-through":"none"}}>{c.text}</span></div>)}</details>}
+    </div>
+  );
+}
+
+function Weight() {
+  const [entries, setEntries] = useStorage("weight_entries", []);
+  const [cycleLog, setCycleLog] = useStorage("cycle_log", []);
+  const [form, setForm] = useState({ date:todayStr(), weight:"", note:"" });
+  const [cycleDate, setCycleDate] = useState(todayStr());
+  const [showCycleForm, setShowCycleForm] = useState(false);
+  const addWeight=()=>{if(!form.weight)return;setEntries(e=>[...e.filter(x=>x.date!==form.date),{date:form.date,weight:parseFloat(form.weight),note:form.note}].sort((a,b)=>a.date.localeCompare(b.date)));setForm({date:todayStr(),weight:"",note:""}); };
+  const addCycle=()=>{setCycleLog(c=>[...c.filter(x=>x.date!==cycleDate),{date:cycleDate}].sort((a,b)=>a.date.localeCompare(b.date)));setShowCycleForm(false);};
+  const delEntry=date=>setEntries(e=>e.filter(x=>x.date!==date));
+  const delCycle=date=>setCycleLog(c=>c.filter(x=>x.date!==date));
+  const last30=Array.from({length:30},(_,i)=>{const d=new Date();d.setDate(d.getDate()-29+i);return toISO(d);});
+  const chartEntries=entries.filter(e=>last30.includes(e.date));
+  const minW=chartEntries.length?Math.min(...chartEntries.map(e=>e.weight))-1:50;
+  const maxW=chartEntries.length?Math.max(...chartEntries.map(e=>e.weight))+1:100;
+  const chartH=110,chartW=320;
+  const toX=date=>{const idx=last30.indexOf(date);return idx<0?0:(idx/(last30.length-1))*chartW;};
+  const toY=w=>chartH-((w-minW)/(maxW-minW))*chartH;
+  const firstEntry=entries[0],lastEntry=entries[entries.length-1];
+  const diff=firstEntry&&lastEntry&&entries.length>1?(lastEntry.weight-firstEntry.weight).toFixed(1):null;
+  const si={border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,background:"#faf7f2",color:C.text,outline:"none"};
+  return (
+    <div>
+      <div style={{background:C.accentLight,borderRadius:16,padding:14,marginBottom:14}}>
+        <div style={{fontSize:9,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:2,marginBottom:10}}>Zadať hmotnosť</div>
+        <div style={{display:"flex",gap:8,marginBottom:8}}><input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} style={{...si,flex:1}}/><input type="number" step="0.1" value={form.weight} onChange={e=>setForm(f=>({...f,weight:e.target.value}))} placeholder="kg" style={{...si,width:70}}/></div>
+        <input value={form.note} onChange={e=>setForm(f=>({...f,note:e.target.value}))} placeholder="Poznámka" style={{...si,width:"100%",marginBottom:8,boxSizing:"border-box"}}/>
+        <button onClick={addWeight} style={{width:"100%",background:C.gold,border:"none",borderRadius:10,padding:"9px",color:"#faf7f2",fontWeight:700,fontSize:13,cursor:"pointer"}}>Uložiť</button>
+      </div>
+      {diff!==null&&<div style={{display:"flex",gap:10,marginBottom:14}}>
+        <div style={{flex:1,background:C.accentLight,borderRadius:12,padding:"12px",textAlign:"center"}}><div style={{fontSize:20,fontWeight:700,color:C.gold}}>{diff>0?"+":""}{diff} kg</div><div style={{fontSize:10,color:C.muted,letterSpacing:0.5}}>celková zmena</div></div>
+        {lastEntry&&<div style={{flex:1,background:C.bg,borderRadius:12,padding:"12px",textAlign:"center",border:`1px solid ${C.border}`}}><div style={{fontSize:20,fontWeight:700,color:C.accent}}>{lastEntry.weight} kg</div><div style={{fontSize:10,color:C.muted,letterSpacing:0.5}}>posledný záznam</div></div>}
+      </div>}
+      {chartEntries.length>1&&<div style={{marginBottom:14}}>
+        <div style={{fontSize:10,fontWeight:700,color:C.gold,letterSpacing:1.5,textTransform:"uppercase",marginBottom:8}}>Graf – 30 dní</div>
+        <div style={{overflowX:"auto"}}><svg width={chartW} height={chartH+20} style={{display:"block"}}>
+          <polyline points={chartEntries.map(e=>`${toX(e.date)},${toY(e.weight)}`).join(" ")} fill="none" stroke={C.gold} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"/>
+          {chartEntries.map(e=><circle key={e.date} cx={toX(e.date)} cy={toY(e.weight)} r={2.5} fill={C.gold}/>)}
+          {cycleLog.filter(c=>last30.includes(c.date)).map(c=><line key={c.date} x1={toX(c.date)} y1={0} x2={toX(c.date)} y2={chartH} stroke={C.lav} strokeWidth={1} strokeDasharray="4,3" opacity="0.6"/>)}
+        </svg></div>
+      </div>}
+      <div style={{marginBottom:14}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.gold,letterSpacing:1.5,textTransform:"uppercase"}}>Cyklus</div>
+          <button onClick={()=>setShowCycleForm(!showCycleForm)} style={{background:C.accentLight,border:"none",borderRadius:8,padding:"4px 10px",cursor:"pointer",color:C.accent,fontSize:11,fontWeight:600}}>+ Zaznačiť</button>
+        </div>
+        {showCycleForm&&<div style={{display:"flex",gap:8,marginBottom:10}}><input type="date" value={cycleDate} onChange={e=>setCycleDate(e.target.value)} style={{...si,flex:1}}/><button onClick={addCycle} style={{background:C.gold,border:"none",borderRadius:10,padding:"8px 14px",color:"#faf7f2",fontWeight:700,cursor:"pointer"}}>✓</button></div>}
+        {cycleLog.slice(-5).reverse().map(c=><div key={c.date} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",background:C.accentLight,borderRadius:8,marginBottom:3,fontSize:12}}><span style={{color:C.accent}}>{new Date(c.date+"T12:00").toLocaleDateString("sk-SK",{day:"numeric",month:"long",year:"numeric"})}</span><button onClick={()=>delCycle(c.date)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:13}}>✕</button></div>)}
+      </div>
+      {entries.length>0&&<div>
+        <div style={{fontSize:10,fontWeight:700,color:C.gold,letterSpacing:1.5,textTransform:"uppercase",marginBottom:8}}>História</div>
+        {entries.slice(-10).reverse().map(e=><div key={e.date} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",background:C.bg,borderRadius:8,marginBottom:3}}><span style={{fontSize:11,color:C.muted}}>{new Date(e.date+"T12:00").toLocaleDateString("sk-SK",{day:"numeric",month:"short"})}</span><span style={{fontSize:13,fontWeight:600,color:C.text}}>{e.weight} kg</span>{e.note&&<span style={{fontSize:10,color:C.muted,flex:1,textAlign:"center",marginLeft:8}}>{e.note}</span>}<button onClick={()=>delEntry(e.date)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:13}}>✕</button></div>)}
+      </div>}
+    </div>
+  );
+}
+
+function Stats() {
+  const [tasks]=useStorage("tasks",[]);
+  const [habits]=useStorage("habits",[]);
+  const [challenges]=useStorage("challenges",[]);
+  const [weightEntries]=useStorage("weight_entries",[]);
+  const tod=todayStr(),now=new Date();
+  const getWeek=()=>{const d=new Date(),s=new Date(d);s.setDate(d.getDate()-monOffset(d.getDay()));return toISO(s);};
+  const todayH=habits.filter(h=>habitDueToday(h,tod));
+  const doneH=todayH.filter(h=>h.checks&&h.checks[tod]).length;
+  const doneTasks=tasks.filter(t=>t.done).length;
+  const weekC=challenges.filter(c=>c.week===getWeek());
+  const doneWC=weekC.filter(c=>c.done).length;
+  const maxStreak=habits.reduce((m,h)=>Math.max(m,h.streak||0),0);
+  const best=habits.find(h=>h.streak===maxStreak);
+  const monthStart=new Date(now.getFullYear(),now.getMonth(),1);
+  const monthDays=Array.from({length:now.getDate()},(_,i)=>{const d=new Date(now.getFullYear(),now.getMonth(),i+1);return toISO(d);});
+  let habitDaysTotal=0,habitDaysDone=0;
+  habits.forEach(h=>{monthDays.forEach(day=>{if(habitDueToday(h,day)){habitDaysTotal++;if(h.checks&&h.checks[day])habitDaysDone++;}});});
+  const habitMonthPct=habitDaysTotal?Math.round((habitDaysDone/habitDaysTotal)*100):0;
+  const monthTasks=tasks.filter(t=>t.date&&t.date>=toISO(monthStart)&&t.date<=tod);
+  const monthTasksDone=monthTasks.filter(t=>t.done).length;
+  const monthWeeks=[];const cur=new Date(monthStart);cur.setDate(cur.getDate()-monOffset(cur.getDay()));
+  while(cur<=now){monthWeeks.push(toISO(new Date(cur)));cur.setDate(cur.getDate()+7);}
+  const monthChallenges=challenges.filter(c=>monthWeeks.includes(c.week));
+  const monthChallengesDone=monthChallenges.filter(c=>c.done).length;
+  const monthWeight=weightEntries.filter(e=>e.date>=toISO(monthStart)&&e.date<=tod);
+  const firstW=monthWeight[0],lastW=monthWeight[monthWeight.length-1];
+  const weightDiff=firstW&&lastW&&monthWeight.length>1?(lastW.weight-firstW.weight).toFixed(1):null;
+  const SLabel=({children})=><div style={{fontSize:9,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:2,marginBottom:12}}>{children}</div>;
+  const StatRow=({label,done,total,color})=>(
+    <div style={{marginBottom:12}}>
+      <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.text}}>{label}</span><span style={{fontSize:12,fontWeight:700,color}}>{done}/{total} · {total?Math.round((done/total)*100):0}%</span></div>
+      <Bar pct={total?Math.round((done/total)*100):0} color={color}/>
+    </div>
+  );
+  return (
+    <div>
+      <SLabel>Dnes</SLabel>
+      <StatRow label="Návyky" done={doneH} total={todayH.length||1} color={C.gold}/>
+      <StatRow label="Úlohy" done={doneTasks} total={tasks.length||1} color={C.accent}/>
+      <StatRow label="Výzvy" done={doneWC} total={weekC.length||1} color={C.lav}/>
+      <div style={{background:C.accentLight,borderRadius:14,padding:14,marginTop:4,marginBottom:24,border:`1px solid ${C.border}`}}>
+        <div style={{fontSize:9,color:C.muted,letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}}>Najdlhší streak</div>
+        <div style={{fontSize:28,fontWeight:700,color:C.gold}}>{maxStreak} <span style={{fontSize:14,fontWeight:400}}>dní</span></div>
+        {best&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>{best.name}</div>}
+      </div>
+      <SLabel>Zhrnutie – {SK_MONTHS[now.getMonth()]} {now.getFullYear()}</SLabel>
+      {habits.length>0&&<div style={{marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.text}}>Návyky</span><span style={{fontSize:12,fontWeight:700,color:C.gold}}>{habitDaysDone}/{habitDaysTotal} · {habitMonthPct}%</span></div><Bar pct={habitMonthPct} color={C.gold}/><div style={{fontSize:10,color:C.muted,marginTop:4}}>{habitMonthPct>=80?"Výborný mesiac.":habitMonthPct>=50?"Dobrý progres.":"Je priestor na zlepšenie."}</div></div>}
+      {monthTasks.length>0&&<div style={{marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.text}}>Úlohy</span><span style={{fontSize:12,fontWeight:700,color:C.accent}}>{monthTasksDone}/{monthTasks.length} · {Math.round((monthTasksDone/monthTasks.length)*100)}%</span></div><Bar pct={Math.round((monthTasksDone/monthTasks.length)*100)} color={C.accent}/></div>}
+      {monthChallenges.length>0&&<div style={{marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.text}}>Výzvy</span><span style={{fontSize:12,fontWeight:700,color:C.lav}}>{monthChallengesDone}/{monthChallenges.length} · {Math.round((monthChallengesDone/monthChallenges.length)*100)}%</span></div><Bar pct={Math.round((monthChallengesDone/monthChallenges.length)*100)} color={C.lav}/></div>}
+      {weightDiff!==null&&<div style={{background:C.accentLight,borderRadius:14,padding:14,marginTop:4,border:`1px solid ${C.border}`}}><div style={{fontSize:9,color:C.muted,letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}}>Forma</div><div style={{fontSize:22,fontWeight:700,color:C.gold}}>{weightDiff>0?"+":""}{weightDiff} kg</div><div style={{fontSize:10,color:C.muted,marginTop:2}}>{firstW.weight} → {lastW.weight} kg</div></div>}
+    </div>
+  );
+}
+
+const TABS = [
+  {id:"calendar",  label:"Kalendár"},
+  {id:"todo",      label:"Úlohy"},
+  {id:"habits",    label:"Návyky"},
+  {id:"challenges",label:"Výzvy"},
+  {id:"weight",    label:"Forma"},
+  {id:"stats",     label:"Štatistiky"},
+];
+
+function App() {
+  const [tab, setTab] = useState("calendar");
+  const now = new Date();
+  const dateLabel = now.toLocaleDateString("sk-SK", { weekday:"long", day:"numeric", month:"long", year:"numeric" });
+  const nameKey = `${now.getMonth()+1}-${now.getDate()}`;
+  const todayName = SK_NAMES[nameKey];
+  const quote = getDailyQuote();
+
+  return (
+    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#f0e8d8 0%,#ede4d0 100%)",fontFamily:"sans-serif",color:C.text}}>
+      <SmokeHeader dateLabel={dateLabel} todayName={todayName} quote={quote}/>
+      <div style={{maxWidth:480,margin:"-20px auto 0",padding:"0 14px 40px",position:"relative",zIndex:2}}>
+        <div style={{background:C.card,borderRadius:24,boxShadow:"0 4px 40px rgba(100,70,20,.10)",border:`1px solid ${C.border}`,overflow:"hidden"}}>
+          <div style={{display:"flex",background:C.smoke,borderBottom:`1px solid ${C.border}`}}>
+            {TABS.map(t=>(
+              <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:"13px 2px",border:"none",background:"transparent",cursor:"pointer",fontSize:9,fontWeight:700,color:tab===t.id?C.gold:C.muted,borderBottom:tab===t.id?`2px solid ${C.gold}`:"2px solid transparent",whiteSpace:"nowrap",letterSpacing:0.3,textTransform:"uppercase"}}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div style={{padding:"22px 18px"}}>
+            {tab==="calendar"&&<Calendar/>}
+            {tab==="todo"&&<Todo/>}
+            {tab==="habits"&&<Habits/>}
+            {tab==="challenges"&&<Challenges/>}
+            {tab==="weight"&&<Weight/>}
+            {tab==="stats"&&<Stats/>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+  </script>
+</body>
+</html>

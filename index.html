@@ -15,32 +15,44 @@
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0;}
-    body{background:#f0e8d8;font-family:sans-serif;-webkit-tap-highlight-color:transparent;}
+    body{font-family:sans-serif;-webkit-tap-highlight-color:transparent;transition:background .3s;}
+    body.light{background:#f0e8d8;color:#2e2416;}
+    body.dark{background:#1a1612;color:#e8e0d0;}
     input,button,select{font-family:sans-serif;}
     ::-webkit-scrollbar{width:4px;}
-    ::-webkit-scrollbar-thumb{background:#e0d4bc;border-radius:4px;}
+    ::-webkit-scrollbar-thumb{background:#c9a84c44;border-radius:4px;}
     .drag-over{outline:2px dashed #c9a84c;border-radius:12px;}
   </style>
 </head>
-<body>
+<body class="light">
 <div id="root"></div>
 <script>if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');</script>
 <script type="text/babel">
-const {useState,useEffect,useRef,useCallback}=React;
+const {useState,useEffect,useRef}=React;
 
-const C={
-  bg:"#f5f0e8",card:"#faf7f2",accent:"#b8965a",accentLight:"#f0e8d8",
-  lav:"#9e8a7a",lavLight:"#ede8e3",text:"#2e2416",muted:"#9a8a72",
-  border:"#e0d4bc",gold:"#c9a84c",smoke:"#f8f4ee",
-};
-const TASK_COLORS=[
-  {id:"rose",color:"#c9a0a8",bg:"#f8f0f2"},
-  {id:"mint",color:"#8aaa96",bg:"#eef5f0"},
-  {id:"lav",color:"#a096bc",bg:"#f2f0f8"},
-  {id:"peach",color:"#c4aa80",bg:"#f8f3e8"},
-  {id:"blue",color:"#8aaabe",bg:"#eef4f8"},
-];
-const getTC=id=>TASK_COLORS.find(c=>c.id===id)||TASK_COLORS[0];
+function useTheme(){
+  const[dark,setDark]=useState(()=>localStorage.getItem("theme")==="dark");
+  useEffect(()=>{
+    document.body.className=dark?"dark":"light";
+    localStorage.setItem("theme",dark?"dark":"light");
+  },[dark]);
+  return[dark,setDark];
+}
+
+// Theme-aware colors
+function useC(dark){
+  return dark?{
+    bg:"#1a1612",card:"#231f1a",accent:"#c9a84c",accentLight:"#2a2318",
+    lav:"#9e8a7a",lavLight:"#2a2320",text:"#e8e0d0",muted:"#7a6a50",
+    border:"#3a3020",gold:"#c9a84c",smoke:"#1e1a15",
+    itemBg:"#2a2520",itemBgDone:"#2e2a1e",sepLine:"#3a3020",
+  }:{
+    bg:"#f5f0e8",card:"#faf7f2",accent:"#b8965a",accentLight:"#f0e8d8",
+    lav:"#9e8a7a",lavLight:"#ede8e3",text:"#2e2416",muted:"#9a8a72",
+    border:"#e0d4bc",gold:"#c9a84c",smoke:"#f8f4ee",
+    itemBg:"#f0ece4",itemBgDone:"#ede8da",sepLine:"#e0d4bc",
+  };
+}
 
 function useStorage(key,def){
   const[v,setV]=useState(def);
@@ -86,6 +98,16 @@ const toISO=d=>d.toISOString().split("T")[0];
 const todayStr=()=>toISO(new Date());
 const monOffset=dow=>(dow+6)%7;
 const daysInMonth=(y,m)=>new Date(y,m+1,0).getDate();
+
+const TASK_COLORS=[
+  {id:"rose",color:"#c9a0a8",bg:"#f8f0f2",bgd:"#2e1e22"},
+  {id:"mint",color:"#8aaa96",bg:"#eef5f0",bgd:"#1a2e22"},
+  {id:"lav",color:"#a096bc",bg:"#f2f0f8",bgd:"#221e2e"},
+  {id:"peach",color:"#c4aa80",bg:"#f8f3e8",bgd:"#2e2618"},
+  {id:"blue",color:"#8aaabe",bg:"#eef4f8",bgd:"#1a222e"},
+];
+const getTC=(id,dark)=>{const t=TASK_COLORS.find(c=>c.id===id)||TASK_COLORS[0];return{...t,bg:dark?t.bgd:t.bg};};
+
 const habitDueToday=(h,dateStr)=>{
   const d=new Date(dateStr+"T12:00"),dow=d.getDay();
   if(h.repeat==="daily")return true;
@@ -94,47 +116,87 @@ const habitDueToday=(h,dateStr)=>{
   if(h.repeat==="none")return h.date===dateStr;
   return true;
 };
+const taskDueOn=(t,dateStr)=>{
+  if(!t.repeat||t.repeat==="none")return t.date===dateStr;
+  const d=new Date(dateStr+"T12:00"),dow=d.getDay();
+  if(t.repeat==="daily")return!t.date||dateStr>=t.date;
+  if(t.repeat==="weekly"){if(t.date&&dateStr<t.date)return false;const s=new Date((t.date||dateStr)+"T12:00");return Math.floor((d-s)/86400000)%7===0;}
+  if(t.repeat==="custom"&&t.days){if(t.date&&dateStr<t.date)return false;return t.days.includes(dow);}
+  return false;
+};
 
-// ── Drag helpers ──
 function useDragList(items,setItems){
   const dragIdx=useRef(null);
   const onDragStart=i=>dragIdx.current=i;
   const onDrop=i=>{
     if(dragIdx.current===null||dragIdx.current===i)return;
-    const arr=[...items];
-    const[moved]=arr.splice(dragIdx.current,1);
-    arr.splice(i,0,moved);
-    setItems(arr);
-    dragIdx.current=null;
+    const arr=[...items];const[m]=arr.splice(dragIdx.current,1);arr.splice(i,0,m);
+    setItems(arr);dragIdx.current=null;
   };
   return{onDragStart,onDrop};
 }
 
-function SmokeHeader({dateLabel,todayName,quote}){
+// ── Shared row component ──
+function CheckRow({done,onToggle,label,sublabel,colorDot,bg,sepLine,text,muted,badge}){
   return(
-    <div style={{position:"relative",overflow:"hidden",padding:"clamp(20px,5vw,36px) clamp(16px,5vw,24px) clamp(36px,8vw,56px)",textAlign:"center",background:"linear-gradient(160deg,#f0e8d8 0%,#e8dcc8 40%,#f0ead8 100%)"}}>
+    <div onClick={onToggle} style={{display:"flex",alignItems:"center",gap:12,padding:"11px 14px",background:bg,borderBottom:`1px solid ${sepLine}`,cursor:"pointer",transition:"background .15s"}}>
+      <div style={{width:22,height:22,borderRadius:6,border:`1.5px solid ${done?"#c9a84c":sepLine}`,background:done?"#c9a84c":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,transition:"all .15s"}}>
+        {done&&<svg width="11" height="8" viewBox="0 0 11 8" fill="none"><polyline points="1,4 4,7 10,1" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+      </div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:13,fontWeight:500,color:done?muted:text,textDecoration:done?"line-through":"none",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{label}</div>
+        {sublabel&&<div style={{fontSize:10,color:muted,marginTop:1}}>{sublabel}</div>}
+      </div>
+      {badge&&<span style={{fontSize:9,background:"#c9a84c22",color:"#c9a84c",borderRadius:999,padding:"2px 7px",fontWeight:700,letterSpacing:0.5,flexShrink:0}}>{badge}</span>}
+      {colorDot&&<div style={{width:8,height:8,borderRadius:"50%",background:colorDot,flexShrink:0,opacity:0.8}}/>}
+    </div>
+  );
+}
+
+function SectionCard({title,children,C}){
+  return(
+    <div style={{marginBottom:12}}>
+      <div style={{fontSize:9,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:2,marginBottom:6,paddingLeft:2}}>{title}</div>
+      <div style={{background:C.card,borderRadius:14,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function SmokeHeader({dateLabel,todayName,quote,dark,setDark,C}){
+  const hbg=dark?"linear-gradient(160deg,#1e1a14 0%,#17140f 100%)":"linear-gradient(160deg,#f0e8d8 0%,#e8dcc8 40%,#f0ead8 100%)";
+  return(
+    <div style={{position:"relative",overflow:"hidden",padding:"clamp(20px,5vw,36px) clamp(16px,5vw,24px) clamp(40px,8vw,56px)",textAlign:"center",background:hbg}}>
       <svg style={{position:"absolute",top:0,left:0,width:"100%",height:"100%",pointerEvents:"none"}} viewBox="0 0 480 160" preserveAspectRatio="xMidYMid slice">
-        <defs>
-          <filter id="b1"><feGaussianBlur stdDeviation="12"/></filter>
-          <filter id="b2"><feGaussianBlur stdDeviation="18"/></filter>
-          <filter id="b3"><feGaussianBlur stdDeviation="8"/></filter>
-        </defs>
-        <ellipse cx="80" cy="90" rx="120" ry="55" fill="#d4c4a8" opacity="0.35" filter="url(#b2)"/>
-        <ellipse cx="400" cy="70" rx="130" ry="50" fill="#c8b898" opacity="0.30" filter="url(#b2)"/>
-        <ellipse cx="240" cy="130" rx="180" ry="45" fill="#ddd0b8" opacity="0.28" filter="url(#b2)"/>
-        <ellipse cx="60" cy="50" rx="80" ry="30" fill="#e8dcc8" opacity="0.55" filter="url(#b1)"/>
-        <ellipse cx="320" cy="40" rx="110" ry="28" fill="#e8dcc8" opacity="0.48" filter="url(#b1)"/>
-        <ellipse cx="200" cy="105" rx="75" ry="12" fill="#e0d4bc" opacity="0.38" filter="url(#b3)"/>
+        <defs><filter id="b1"><feGaussianBlur stdDeviation="12"/></filter><filter id="b2"><feGaussianBlur stdDeviation="18"/></filter><filter id="b3"><feGaussianBlur stdDeviation="8"/></filter></defs>
+        {dark?<>
+          <ellipse cx="80" cy="90" rx="120" ry="55" fill="#2a2010" opacity="0.6" filter="url(#b2)"/>
+          <ellipse cx="400" cy="70" rx="130" ry="50" fill="#201808" opacity="0.5" filter="url(#b2)"/>
+          <ellipse cx="240" cy="130" rx="180" ry="45" fill="#281e0c" opacity="0.4" filter="url(#b2)"/>
+          <ellipse cx="60" cy="50" rx="80" ry="30" fill="#221a0a" opacity="0.7" filter="url(#b1)"/>
+          <ellipse cx="320" cy="40" rx="110" ry="28" fill="#2a2010" opacity="0.6" filter="url(#b1)"/>
+        </>:<>
+          <ellipse cx="80" cy="90" rx="120" ry="55" fill="#d4c4a8" opacity="0.35" filter="url(#b2)"/>
+          <ellipse cx="400" cy="70" rx="130" ry="50" fill="#c8b898" opacity="0.30" filter="url(#b2)"/>
+          <ellipse cx="240" cy="130" rx="180" ry="45" fill="#ddd0b8" opacity="0.28" filter="url(#b2)"/>
+          <ellipse cx="60" cy="50" rx="80" ry="30" fill="#e8dcc8" opacity="0.55" filter="url(#b1)"/>
+          <ellipse cx="320" cy="40" rx="110" ry="28" fill="#e8dcc8" opacity="0.48" filter="url(#b1)"/>
+        </>}
         <line x1="0" y1="158" x2="480" y2="158" stroke="#c9a84c" strokeWidth="0.5" opacity="0.4"/>
       </svg>
-      <div style={{position:"relative",fontSize:"clamp(9px,2.5vw,11px)",fontWeight:700,color:"#a08858",textTransform:"uppercase",letterSpacing:3,marginBottom:14}}>
+      {/* Theme toggle */}
+      <div onClick={()=>setDark(d=>!d)} style={{position:"absolute",top:14,right:14,zIndex:10,background:dark?"#2a2318":"#e8dcc8",border:`1px solid ${C.border}`,borderRadius:20,width:36,height:20,cursor:"pointer",display:"flex",alignItems:"center",padding:"2px",transition:"background .3s"}}>
+        <div style={{width:16,height:16,borderRadius:"50%",background:"#c9a84c",transform:dark?"translateX(16px)":"translateX(0)",transition:"transform .3s"}}/>
+      </div>
+      <div style={{position:"relative",fontSize:"clamp(9px,2.5vw,11px)",fontWeight:700,color:dark?"#7a6a50":"#a08858",textTransform:"uppercase",letterSpacing:3,marginBottom:14}}>
         {dateLabel}{todayName&&<span style={{marginLeft:8,color:C.gold}}>· {todayName}</span>}
       </div>
-      <div style={{position:"relative",fontFamily:"Georgia,serif",fontStyle:"italic",fontSize:"clamp(16px,4.5vw,21px)",color:"#3a2e1e",lineHeight:1.7,maxWidth:340,margin:"0 auto"}}>
+      <div style={{position:"relative",fontFamily:"Georgia,serif",fontStyle:"italic",fontSize:"clamp(16px,4.5vw,21px)",color:dark?"#e8dcc8":"#3a2e1e",lineHeight:1.7,maxWidth:340,margin:"0 auto"}}>
         {quote.text}
       </div>
       <div style={{position:"relative",marginTop:10,fontSize:"clamp(10px,2.5vw,11px)",fontWeight:600,color:C.gold,letterSpacing:2}}>— {quote.author}</div>
-      <div style={{position:"relative",marginTop:4,fontSize:9,color:"#b09870",letterSpacing:3,textTransform:"uppercase"}}>Stoický výrok dňa</div>
+      <div style={{position:"relative",marginTop:4,fontSize:9,color:dark?"#5a4a30":"#b09870",letterSpacing:3,textTransform:"uppercase"}}>Stoický výrok dňa</div>
     </div>
   );
 }
@@ -146,31 +208,26 @@ function Confetti({trigger}){
     const canvas=ref.current;if(!canvas)return;
     const ctx=canvas.getContext("2d");
     canvas.width=canvas.offsetWidth;canvas.height=canvas.offsetHeight;
-    const pieces=Array.from({length:24},()=>({
-      x:canvas.width*0.3+Math.random()*canvas.width*0.4,
-      y:canvas.height*0.2+Math.random()*canvas.height*0.3,
-      r:1.5+Math.random()*2,dx:(Math.random()-0.5)*2,dy:-1-Math.random()*2,
-      alpha:1,gravity:0.05,
+    const pieces=Array.from({length:20},()=>({
+      x:canvas.width*0.3+Math.random()*canvas.width*0.4,y:canvas.height*0.2+Math.random()*canvas.height*0.3,
+      r:1.5+Math.random()*2,dx:(Math.random()-0.5)*2,dy:-1-Math.random()*2,alpha:1,gravity:0.05,
       color:["#c9a84c","#b8965a","#d4b896","#a09070","#e8d8b8"][Math.floor(Math.random()*5)]
     }));
     let raf;
-    const draw=()=>{
-      ctx.clearRect(0,0,canvas.width,canvas.height);let alive=false;
-      pieces.forEach(p=>{p.x+=p.dx;p.y+=p.dy;p.dy+=p.gravity;p.alpha-=0.02;
+    const draw=()=>{ctx.clearRect(0,0,canvas.width,canvas.height);let alive=false;
+      pieces.forEach(p=>{p.x+=p.dx;p.y+=p.dy;p.dy+=p.gravity;p.alpha-=0.022;
         if(p.alpha>0){alive=true;ctx.globalAlpha=p.alpha;ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fill();}
-      });
-      ctx.globalAlpha=1;
+      });ctx.globalAlpha=1;
       if(alive)raf=requestAnimationFrame(draw);else ctx.clearRect(0,0,canvas.width,canvas.height);
-    };
-    draw();return()=>cancelAnimationFrame(raf);
+    };draw();return()=>cancelAnimationFrame(raf);
   },[trigger]);
   return React.createElement('canvas',{ref,style:{position:"absolute",inset:0,width:"100%",height:"100%",pointerEvents:"none",borderRadius:"inherit",zIndex:10}});
 }
 
-function Modal({title,onClose,children}){
+function Modal({title,onClose,children,C}){
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(20,14,8,.40)",zIndex:1000,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={onClose}>
-      <div style={{background:C.card,borderRadius:"24px 24px 0 0",width:"100%",maxWidth:600,maxHeight:"92vh",overflowY:"auto",padding:"24px 20px 32px"}} onClick={e=>e.stopPropagation()}>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:1000,display:"flex",alignItems:"flex-end",justifyContent:"center"}} onClick={onClose}>
+      <div style={{background:C.card,borderRadius:"24px 24px 0 0",width:"100%",maxWidth:600,maxHeight:"92vh",overflowY:"auto",padding:"24px 20px 32px",border:`1px solid ${C.border}`}} onClick={e=>e.stopPropagation()}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <span style={{fontWeight:700,fontSize:16,color:C.gold}}>{title}</span>
           <button onClick={onClose} style={{background:C.border,border:"none",borderRadius:10,width:30,height:30,cursor:"pointer",fontSize:15,color:C.muted}}>✕</button>
@@ -181,7 +238,7 @@ function Modal({title,onClose,children}){
   );
 }
 
-function Bar({pct,color}){
+function Bar({pct,color,C}){
   return(
     <div style={{background:C.border,borderRadius:999,height:5,overflow:"hidden",flex:1}}>
       <div style={{width:`${pct}%`,background:color,height:"100%",borderRadius:999,transition:"width .4s"}}/>
@@ -189,62 +246,40 @@ function Bar({pct,color}){
   );
 }
 
-const iStyle={width:"100%",border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,marginBottom:8,boxSizing:"border-box",background:"#faf7f2",color:C.text,outline:"none"};
-
-function TaskForm({initial,onSave,onCancel}){
+function TaskForm({initial,onSave,onCancel,C,dark}){
   const[f,setF]=useState({text:"",note:"",date:"",timeFrom:"",timeTo:"",colorId:"rose",repeat:"none",days:[],...(initial||{})});
   const upd=k=>e=>setF(x=>({...x,[k]:e.target.value}));
   const toggleDay=d=>setF(x=>({...x,days:x.days.includes(d)?x.days.filter(v=>v!==d):[...x.days,d]}));
+  const si={width:"100%",border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,marginBottom:8,boxSizing:"border-box",background:C.card,color:C.text,outline:"none"};
   return(
     <div style={{background:C.accentLight,borderRadius:16,padding:14,marginBottom:12}}>
-      <input type="text" value={f.text} onChange={upd("text")} placeholder="Názov úlohy" style={iStyle}/>
-      <input type="text" value={f.note} onChange={upd("note")} placeholder="Poznámka" style={iStyle}/>
-      <input type="date" value={f.date} onChange={upd("date")} style={iStyle}/>
+      <input type="text" value={f.text} onChange={upd("text")} placeholder="Názov úlohy" style={si}/>
+      <input type="text" value={f.note} onChange={upd("note")} placeholder="Poznámka" style={si}/>
+      <input type="date" value={f.date} onChange={upd("date")} style={si}/>
       <div style={{display:"flex",gap:8,marginBottom:8}}>
-        <input type="time" value={f.timeFrom} onChange={upd("timeFrom")} style={{flex:1,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,background:"#faf7f2",color:C.text,outline:"none"}}/>
-        <input type="time" value={f.timeTo} onChange={upd("timeTo")} style={{flex:1,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,background:"#faf7f2",color:C.text,outline:"none"}}/>
+        <input type="time" value={f.timeFrom} onChange={upd("timeFrom")} style={{flex:1,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,background:C.card,color:C.text,outline:"none"}}/>
+        <input type="time" value={f.timeTo} onChange={upd("timeTo")} style={{flex:1,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,background:C.card,color:C.text,outline:"none"}}/>
       </div>
       <div style={{fontSize:10,color:C.muted,marginBottom:6,letterSpacing:1,textTransform:"uppercase"}}>Opakovanie</div>
       <div style={{display:"flex",gap:5,marginBottom:8,flexWrap:"wrap"}}>
         {Object.entries(REPEAT_LABELS).map(([k,v])=>(
-          <button key={k} onClick={()=>setF(x=>({...x,repeat:k}))} style={{padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:f.repeat===k?C.gold:C.card,color:f.repeat===k?"#faf7f2":C.muted}}>{v}</button>
+          <button key={k} onClick={()=>setF(x=>({...x,repeat:k}))} style={{padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:f.repeat===k?"#c9a84c":C.card,color:f.repeat===k?"#faf7f2":C.muted}}>{v}</button>
         ))}
       </div>
-      {f.repeat==="custom"&&(
-        <div style={{display:"flex",gap:5,marginBottom:8,flexWrap:"wrap"}}>
-          {DOW_LABELS.map((d,i)=><button key={i} onClick={()=>toggleDay(i)} style={{width:32,height:32,borderRadius:8,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:f.days.includes(i)?C.gold:C.card,color:f.days.includes(i)?"#faf7f2":C.muted}}>{d}</button>)}
-        </div>
-      )}
+      {f.repeat==="custom"&&<div style={{display:"flex",gap:5,marginBottom:8,flexWrap:"wrap"}}>{DOW_LABELS.map((d,i)=><button key={i} onClick={()=>toggleDay(i)} style={{width:32,height:32,borderRadius:8,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:f.days.includes(i)?"#c9a84c":C.card,color:f.days.includes(i)?"#faf7f2":C.muted}}>{d}</button>)}</div>}
       <div style={{fontSize:10,color:C.muted,marginBottom:6,letterSpacing:1,textTransform:"uppercase"}}>Farba</div>
       <div style={{display:"flex",gap:8,marginBottom:12}}>
-        {TASK_COLORS.map(tc=><div key={tc.id} onClick={()=>setF(x=>({...x,colorId:tc.id}))} style={{width:24,height:24,borderRadius:"50%",background:tc.color,cursor:"pointer",border:f.colorId===tc.id?`2.5px solid ${C.gold}`:"2.5px solid transparent",opacity:0.85}}/>)}
+        {TASK_COLORS.map(tc=><div key={tc.id} onClick={()=>setF(x=>({...x,colorId:tc.id}))} style={{width:24,height:24,borderRadius:"50%",background:tc.color,cursor:"pointer",border:f.colorId===tc.id?"2.5px solid #c9a84c":"2.5px solid transparent",opacity:0.85}}/>)}
       </div>
       <div style={{display:"flex",gap:8}}>
-        <button onClick={()=>f.text.trim()&&onSave(f)} style={{flex:1,background:C.gold,border:"none",borderRadius:10,padding:"9px",color:"#faf7f2",fontWeight:700,fontSize:13,cursor:"pointer"}}>Uložiť</button>
+        <button onClick={()=>f.text.trim()&&onSave(f)} style={{flex:1,background:"#c9a84c",border:"none",borderRadius:10,padding:"9px",color:"#1a1208",fontWeight:700,fontSize:13,cursor:"pointer"}}>Uložiť</button>
         <button onClick={onCancel} style={{background:C.border,border:"none",borderRadius:10,padding:"9px 14px",cursor:"pointer",color:C.muted,fontWeight:600}}>Zrušiť</button>
       </div>
     </div>
   );
 }
 
-// Check if a recurring task is due on a given date
-function taskDueOn(t,dateStr){
-  if(!t.repeat||t.repeat==="none")return t.date===dateStr;
-  const d=new Date(dateStr+"T12:00"),dow=d.getDay();
-  if(t.repeat==="daily")return!t.date||dateStr>=t.date;
-  if(t.repeat==="weekly"){
-    if(t.date&&dateStr<t.date)return false;
-    const s=new Date((t.date||dateStr)+"T12:00");
-    return Math.floor((d-s)/86400000)%7===0;
-  }
-  if(t.repeat==="custom"&&t.days){
-    if(t.date&&dateStr<t.date)return false;
-    return t.days.includes(dow);
-  }
-  return false;
-}
-
-function DayDetail({date,onClose}){
+function DayDetail({date,onClose,C,dark}){
   const[tasks,setTasks]=useStorage("tasks",[]);
   const[habits,setHabits]=useStorage("habits",[]);
   const[challenges,setChallenges]=useStorage("challenges",[]);
@@ -259,55 +294,30 @@ function DayDetail({date,onClose}){
   const dayHabits=habits.filter(h=>habitDueToday(h,date));
   const weekStart=(()=>{const dd=new Date(date+"T12:00");dd.setDate(dd.getDate()-monOffset(dd.getDay()));return toISO(dd);})();
   const dayChallenges=challenges.filter(c=>c.week===weekStart);
-  const getDoneKey=t=>t.repeat&&t.repeat!=="none"?`done_${date}`:"done";
   const isTaskDone=t=>t.repeat&&t.repeat!=="none"?!!(t.doneMap&&t.doneMap[date]):t.done;
-  const toggleTask=id=>{
-    setTasks(ts=>ts.map(t=>{
-      if(t.id!==id)return t;
-      if(t.repeat&&t.repeat!=="none"){
-        const doneMap={...(t.doneMap||{})};
-        doneMap[date]=!doneMap[date];
-        return{...t,doneMap};
-      }
-      return{...t,done:!t.done};
-    }));
-    setConfetti(x=>x+1);
-  };
+  const toggleTask=id=>{setTasks(ts=>ts.map(t=>{if(t.id!==id)return t;if(t.repeat&&t.repeat!=="none"){const doneMap={...(t.doneMap||{})};doneMap[date]=!doneMap[date];return{...t,doneMap};}return{...t,done:!t.done};}));setConfetti(x=>x+1);};
   const toggleHabit=id=>{setHabits(hs=>hs.map(h=>{if(h.id!==id)return h;const checks={...(h.checks||{})};checks[date]=!checks[date];let streak=0,dd=new Date();while(true){const k=toISO(dd);if(checks[k]){streak++;dd.setDate(dd.getDate()-1);}else break;}return{...h,checks,streak};}));setConfetti(x=>x+1);};
   const toggleChallenge=id=>{setChallenges(cs=>cs.map(c=>c.id===id?{...c,done:!c.done}:c));setConfetti(x=>x+1);};
   const addTask=f=>{setTasks(t=>[...t,{id:Date.now(),...f,text:f.text.trim(),done:false,doneMap:{}}]);setShowAddTask(false);};
-  const doneAll=dayHabits.filter(h=>h.checks&&h.checks[date]).length+dayTasks.filter(t=>isTaskDone(t)).length+dayChallenges.filter(c=>c.done).length;
-  const totalAll=dayHabits.length+dayTasks.length+dayChallenges.length;
+  const doneAll=dayTasks.filter(t=>isTaskDone(t)).length+dayHabits.filter(h=>h.checks&&h.checks[date]).length+dayChallenges.filter(c=>c.done).length;
+  const totalAll=dayTasks.length+dayHabits.length+dayChallenges.length;
   const pct=totalAll?Math.round((doneAll/totalAll)*100):0;
-  const SL=({c,children})=><div style={{fontSize:9,fontWeight:700,color:c||C.gold,textTransform:"uppercase",letterSpacing:2,marginBottom:8}}>{children}</div>;
   return(
-    <Modal title={label} onClose={onClose}>
+    <Modal title={label} onClose={onClose} C={C}>
       <div style={{position:"relative"}}>
         <Confetti trigger={confetti}/>
         {(holiday||nameDay)&&<div style={{background:C.accentLight,borderRadius:10,padding:"8px 12px",marginBottom:14,fontSize:12,color:C.accent}}>{holiday&&<div>Sviatok: <b>{holiday}</b></div>}{nameDay&&<div>Meniny: <b style={{color:C.gold}}>{nameDay}</b></div>}</div>}
-        {totalAll>0&&<div style={{marginBottom:18}}><div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}><Bar pct={pct} color={C.gold}/><span style={{fontWeight:700,fontSize:14,color:C.gold,minWidth:36}}>{pct}%</span></div><div style={{fontSize:10,color:C.muted}}>{doneAll} z {totalAll} splnených</div></div>}
-        <div style={{marginBottom:18}}>
-          <SL>Návyky</SL>
-          {dayHabits.length===0&&<div style={{fontSize:12,color:C.muted}}>Žiadne</div>}
-          {dayHabits.map(h=>{const done=!!(h.checks&&h.checks[date]);return<div key={h.id} onClick={()=>toggleHabit(h.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:12,background:done?C.accentLight:C.bg,marginBottom:5,cursor:"pointer"}}><div style={{width:20,height:20,borderRadius:6,border:`1.5px solid ${done?C.gold:C.border}`,background:done?C.gold:"#faf7f2",display:"flex",alignItems:"center",justifyContent:"center",color:"#faf7f2",fontSize:11,flexShrink:0}}>{done?"✓":""}</div><span style={{fontSize:13,flex:1,color:done?C.muted:C.text,textDecoration:done?"line-through":"none"}}>{h.name}</span></div>;})}
-        </div>
-        <div style={{marginBottom:18}}>
-          <SL>Úlohy</SL>
-          {dayTasks.length===0&&!showAddTask&&<div style={{fontSize:12,color:C.muted,marginBottom:8}}>Žiadne</div>}
-          {dayTasks.map(t=>{const tc=getTC(t.colorId);const done=isTaskDone(t);return<div key={t.id} onClick={()=>toggleTask(t.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:12,background:done?tc.bg:C.bg,marginBottom:5,cursor:"pointer"}}><div style={{width:20,height:20,borderRadius:6,border:`1.5px solid ${done?tc.color:C.border}`,background:done?tc.color:"#faf7f2",display:"flex",alignItems:"center",justifyContent:"center",color:"#faf7f2",fontSize:11,flexShrink:0}}>{done?"✓":""}</div><div style={{flex:1}}><div style={{fontSize:13,textDecoration:done?"line-through":"none",color:done?C.muted:C.text}}>{t.text}</div>{(t.timeFrom||t.timeTo)&&<div style={{fontSize:10,color:C.muted}}>{t.timeFrom}{t.timeTo?` – ${t.timeTo}`:""}</div>}</div><div style={{width:8,height:8,borderRadius:"50%",background:tc.color,flexShrink:0,opacity:0.7}}/></div>;})}
-          {showAddTask?<TaskForm onSave={addTask} onCancel={()=>setShowAddTask(false)}/>:<button onClick={()=>setShowAddTask(true)} style={{width:"100%",background:"transparent",border:`1px dashed ${C.border}`,borderRadius:10,padding:"8px",cursor:"pointer",color:C.gold,fontSize:12,fontWeight:600,marginTop:4}}>+ Pridať úlohu</button>}
-        </div>
-        <div>
-          <SL>Výzvy</SL>
-          {dayChallenges.length===0&&<div style={{fontSize:12,color:C.muted}}>Žiadne</div>}
-          {dayChallenges.map(c=>{const done=c.done;return<div key={c.id} onClick={()=>toggleChallenge(c.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",borderRadius:12,background:done?C.lavLight:C.bg,marginBottom:5,cursor:"pointer"}}><div style={{width:20,height:20,borderRadius:6,border:`1.5px solid ${done?C.gold:C.border}`,background:done?C.gold:"#faf7f2",display:"flex",alignItems:"center",justifyContent:"center",color:"#faf7f2",fontSize:11,flexShrink:0}}>{done?"✓":""}</div><span style={{fontSize:13,flex:1,textDecoration:done?"line-through":"none",color:done?C.muted:C.text}}>{c.text}</span></div>;})}
-        </div>
+        {totalAll>0&&<div style={{marginBottom:16,display:"flex",alignItems:"center",gap:10}}><Bar pct={pct} color={C.gold} C={C}/><span style={{fontWeight:700,fontSize:13,color:C.gold,minWidth:36}}>{pct}%</span></div>}
+        {dayTasks.length>0&&<SectionCard title="Úlohy" C={C}>{dayTasks.map((t,i)=>{const tc=getTC(t.colorId,dark);const done=isTaskDone(t);return<CheckRow key={t.id} done={done} onToggle={()=>toggleTask(t.id)} label={t.text} sublabel={(t.timeFrom||t.timeTo)?`${t.timeFrom||""}${t.timeTo?" – "+t.timeTo:""}`:undefined} colorDot={tc.color} bg={done?tc.bg:C.itemBg} sepLine={i<dayTasks.length-1?C.sepLine:"transparent"} text={C.text} muted={C.muted}/>;})}</SectionCard>}
+        {showAddTask?<TaskForm onSave={addTask} onCancel={()=>setShowAddTask(false)} C={C} dark={dark}/>:<button onClick={()=>setShowAddTask(true)} style={{width:"100%",background:"transparent",border:`1px dashed ${C.border}`,borderRadius:10,padding:"8px",cursor:"pointer",color:C.gold,fontSize:12,fontWeight:600,marginBottom:12}}>+ Pridať úlohu</button>}
+        {dayHabits.length>0&&<SectionCard title="Návyky" C={C}>{dayHabits.map((h,i)=>{const done=!!(h.checks&&h.checks[date]);return<CheckRow key={h.id} done={done} onToggle={()=>toggleHabit(h.id)} label={h.name} bg={done?C.accentLight:C.itemBg} sepLine={i<dayHabits.length-1?C.sepLine:"transparent"} text={C.text} muted={C.muted}/>;})}</SectionCard>}
+        {dayChallenges.length>0&&<SectionCard title="Výzvy" C={C}>{dayChallenges.map((c,i)=>{const done=c.done;return<CheckRow key={c.id} done={done} onToggle={()=>toggleChallenge(c.id)} label={c.text} bg={done?C.lavLight:C.itemBg} sepLine={i<dayChallenges.length-1?C.sepLine:"transparent"} text={C.text} muted={C.muted}/>;})}</SectionCard>}
       </div>
     </Modal>
   );
 }
 
-function Calendar(){
+function Calendar({C,dark}){
   const now=new Date();
   const[view,setView]=useState({y:now.getFullYear(),m:now.getMonth()});
   const[sel,setSel]=useState(null);
@@ -322,9 +332,9 @@ function Calendar(){
   return(
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <button onClick={()=>setView(v=>{const d=new Date(v.y,v.m-1,1);return{y:d.getFullYear(),m:d.getMonth()};})} style={{background:C.accentLight,border:"none",borderRadius:10,width:34,height:34,cursor:"pointer",fontSize:16,color:C.accent}}>‹</button>
+        <button onClick={()=>setView(v=>{const d=new Date(v.y,v.m-1,1);return{y:d.getFullYear(),m:d.getMonth()};})} style={{background:C.accentLight,border:"none",borderRadius:10,width:34,height:34,cursor:"pointer",fontSize:16,color:C.gold}}>‹</button>
         <span style={{fontWeight:700,fontSize:14,color:C.gold,letterSpacing:1}}>{SK_MONTHS[view.m]} {view.y}</span>
-        <button onClick={()=>setView(v=>{const d=new Date(v.y,v.m+1,1);return{y:d.getFullYear(),m:d.getMonth()};})} style={{background:C.accentLight,border:"none",borderRadius:10,width:34,height:34,cursor:"pointer",fontSize:16,color:C.accent}}>›</button>
+        <button onClick={()=>setView(v=>{const d=new Date(v.y,v.m+1,1);return{y:d.getFullYear(),m:d.getMonth()};})} style={{background:C.accentLight,border:"none",borderRadius:10,width:34,height:34,cursor:"pointer",fontSize:16,color:C.gold}}>›</button>
       </div>
       <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",gap:2,marginBottom:4}}>
         {SK_DAYS_SHORT.map((d,i)=><div key={i} style={{textAlign:"center",fontSize:9,fontWeight:700,color:i>=5?C.gold:C.muted,padding:"2px 0",letterSpacing:0.5}}>{d}</div>)}
@@ -335,22 +345,22 @@ function Calendar(){
           const tod=isToday(d),hol=SK_HOLIDAYS[`${view.m+1}-${d}`];
           const dayTasks=getTasksForDay(d);
           return(
-            <div key={i} onClick={()=>setSel(ds(d))} style={{borderRadius:8,padding:"4px 3px 5px",cursor:"pointer",background:tod?C.gold:hol?"#f0e8d4":"transparent",color:tod?"#faf7f2":hol?C.accent:C.text,minHeight:52}}>
+            <div key={i} onClick={()=>setSel(ds(d))} style={{borderRadius:8,padding:"4px 3px 5px",cursor:"pointer",background:tod?"#c9a84c":hol?C.accentLight:"transparent",color:tod?"#1a1208":hol?C.gold:C.text,minHeight:52,transition:"background .15s"}}>
               <div style={{textAlign:"center",fontSize:12,fontWeight:tod?700:400,marginBottom:2}}>{d}</div>
               <div style={{display:"flex",flexDirection:"column",gap:1,paddingLeft:1,paddingRight:1}}>
-                {dayTasks.slice(0,2).map(t=>{const tc=getTC(t.colorId);return<div key={t.id} style={{fontSize:8,background:tod?"rgba(255,255,255,0.25)":tc.bg,color:tod?"#faf7f2":tc.color,borderRadius:3,padding:"1px 3px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontWeight:600,lineHeight:1.4}}>{t.text}</div>;})}
+                {dayTasks.slice(0,2).map(t=>{const tc=getTC(t.colorId,dark);return<div key={t.id} style={{fontSize:8,background:tod?"rgba(255,255,255,0.25)":tc.bg,color:tod?"#1a1208":tc.color,borderRadius:3,padding:"1px 3px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",fontWeight:600,lineHeight:1.4}}>{t.text}</div>;})}
                 {dayTasks.length>2&&<div style={{fontSize:8,color:tod?"rgba(255,255,255,0.7)":C.muted,paddingLeft:2}}>+{dayTasks.length-2}</div>}
               </div>
             </div>
           );
         })}
       </div>
-      {sel&&sel!==todayStr()&&<DayDetail date={sel} onClose={()=>setSel(null)}/>}
+      {sel&&sel!==todayStr()&&<DayDetail date={sel} onClose={()=>setSel(null)} C={C} dark={dark}/>}
     </div>
   );
 }
 
-function TodayPanel(){
+function TodayPanel({C,dark}){
   const[tasks,setTasks]=useStorage("tasks",[]);
   const[habits,setHabits]=useStorage("habits",[]);
   const[challenges,setChallenges]=useStorage("challenges",[]);
@@ -358,74 +368,32 @@ function TodayPanel(){
   const tod=todayStr();
   const now=new Date();
   const weekStart=(()=>{const dd=new Date();dd.setDate(dd.getDate()-monOffset(dd.getDay()));return toISO(dd);})();
-
   const dayTasks=tasks.filter(t=>taskDueOn(t,tod));
   const dayHabits=habits.filter(h=>habitDueToday(h,tod));
   const dayChallenges=challenges.filter(c=>c.week===weekStart);
-
   const isTaskDone=t=>t.repeat&&t.repeat!=="none"?!!(t.doneMap&&t.doneMap[tod]):t.done;
   const toggleTask=id=>{setTasks(ts=>ts.map(t=>{if(t.id!==id)return t;if(t.repeat&&t.repeat!=="none"){const doneMap={...(t.doneMap||{})};doneMap[tod]=!doneMap[tod];return{...t,doneMap};}return{...t,done:!t.done};}));setConfetti(x=>x+1);};
   const toggleHabit=id=>{setHabits(hs=>hs.map(h=>{if(h.id!==id)return h;const checks={...(h.checks||{})};checks[tod]=!checks[tod];let streak=0,d=new Date();while(true){const k=toISO(d);if(checks[k]){streak++;d.setDate(d.getDate()-1);}else break;}return{...h,checks,streak};}));setConfetti(x=>x+1);};
   const toggleChallenge=id=>{setChallenges(cs=>cs.map(c=>c.id===id?{...c,done:!c.done}:c));setConfetti(x=>x+1);};
-
   const doneAll=dayTasks.filter(t=>isTaskDone(t)).length+dayHabits.filter(h=>h.checks&&h.checks[tod]).length+dayChallenges.filter(c=>c.done).length;
   const totalAll=dayTasks.length+dayHabits.length+dayChallenges.length;
   const pct=totalAll?Math.round((doneAll/totalAll)*100):0;
-
-  const SL=({children})=><div style={{fontSize:9,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:2,marginBottom:8,marginTop:14}}>{children}</div>;
-
   if(totalAll===0)return null;
-
   return(
-    <div style={{marginTop:16,background:C.card,borderRadius:16,border:`1px solid ${C.border}`,padding:"14px 14px 10px",position:"relative"}}>
+    <div style={{marginTop:16,position:"relative"}}>
       <Confetti trigger={confetti}/>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-        <div style={{fontSize:10,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:2}}>
-          Dnes · {now.getDate()}. {SK_MONTHS[now.getMonth()]}
-        </div>
-        <div style={{display:"flex",alignItems:"center",gap:8}}>
-          <Bar pct={pct} color={C.gold}/>
-          <span style={{fontSize:12,fontWeight:700,color:C.gold,minWidth:32}}>{pct}%</span>
-        </div>
+        <div style={{fontSize:9,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:2}}>Dnes · {now.getDate()}. {SK_MONTHS[now.getMonth()]}</div>
+        <div style={{display:"flex",alignItems:"center",gap:8,flex:1,marginLeft:12}}><Bar pct={pct} color={C.gold} C={C}/><span style={{fontSize:12,fontWeight:700,color:C.gold,minWidth:32}}>{pct}%</span></div>
       </div>
-
-      {dayTasks.length>0&&<>
-        <SL>Úlohy</SL>
-        {dayTasks.map(t=>{const tc=getTC(t.colorId);const done=isTaskDone(t);return(
-          <div key={t.id} onClick={()=>toggleTask(t.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:10,background:done?tc.bg:C.bg,marginBottom:5,cursor:"pointer",borderLeft:`2px solid ${tc.color}`}}>
-            <div style={{width:18,height:18,borderRadius:5,border:`1.5px solid ${done?tc.color:C.border}`,background:done?tc.color:"#faf7f2",display:"flex",alignItems:"center",justifyContent:"center",color:"#faf7f2",fontSize:10,flexShrink:0}}>{done?"✓":""}</div>
-            <div style={{flex:1}}>
-              <div style={{fontSize:13,textDecoration:done?"line-through":"none",color:done?C.muted:C.text}}>{t.text}</div>
-              {(t.timeFrom||t.timeTo)&&<div style={{fontSize:10,color:C.muted}}>{t.timeFrom}{t.timeTo?` – ${t.timeTo}`:""}</div>}
-            </div>
-          </div>
-        );})}
-      </>}
-
-      {dayHabits.length>0&&<>
-        <SL>Návyky</SL>
-        {dayHabits.map(h=>{const done=!!(h.checks&&h.checks[tod]);return(
-          <div key={h.id} onClick={()=>toggleHabit(h.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:10,background:done?C.accentLight:C.bg,marginBottom:5,cursor:"pointer"}}>
-            <div style={{width:18,height:18,borderRadius:5,border:`1.5px solid ${done?C.gold:C.border}`,background:done?C.gold:"#faf7f2",display:"flex",alignItems:"center",justifyContent:"center",color:"#faf7f2",fontSize:10,flexShrink:0}}>{done?"✓":""}</div>
-            <span style={{fontSize:13,flex:1,color:done?C.muted:C.text,textDecoration:done?"line-through":"none"}}>{h.name}</span>
-          </div>
-        );})}
-      </>}
-
-      {dayChallenges.length>0&&<>
-        <SL>Výzvy</SL>
-        {dayChallenges.map(c=>{const done=c.done;return(
-          <div key={c.id} onClick={()=>toggleChallenge(c.id)} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:10,background:done?C.lavLight:C.bg,marginBottom:5,cursor:"pointer"}}>
-            <div style={{width:18,height:18,borderRadius:5,border:`1.5px solid ${done?C.gold:C.border}`,background:done?C.gold:"#faf7f2",display:"flex",alignItems:"center",justifyContent:"center",color:"#faf7f2",fontSize:10,flexShrink:0}}>{done?"✓":""}</div>
-            <span style={{fontSize:13,flex:1,textDecoration:done?"line-through":"none",color:done?C.muted:C.text}}>{c.text}</span>
-          </div>
-        );})}
-      </>}
+      {dayTasks.length>0&&<SectionCard title="Úlohy" C={C}>{dayTasks.map((t,i)=>{const tc=getTC(t.colorId,dark);const done=isTaskDone(t);return<CheckRow key={t.id} done={done} onToggle={()=>toggleTask(t.id)} label={t.text} sublabel={(t.timeFrom||t.timeTo)?`${t.timeFrom||""}${t.timeTo?" – "+t.timeTo:""}`:undefined} colorDot={tc.color} bg={done?tc.bg:C.itemBg} sepLine={i<dayTasks.length-1?C.sepLine:"transparent"} text={C.text} muted={C.muted}/>;})}</SectionCard>}
+      {dayHabits.length>0&&<SectionCard title="Návyky" C={C}>{dayHabits.map((h,i)=>{const done=!!(h.checks&&h.checks[tod]);return<CheckRow key={h.id} done={done} onToggle={()=>toggleHabit(h.id)} label={h.name} bg={done?C.accentLight:C.itemBg} sepLine={i<dayHabits.length-1?C.sepLine:"transparent"} text={C.text} muted={C.muted}/>;})}</SectionCard>}
+      {dayChallenges.length>0&&<SectionCard title="Výzvy" C={C}>{dayChallenges.map((c,i)=>{const done=c.done;return<CheckRow key={c.id} done={done} onToggle={()=>toggleChallenge(c.id)} label={c.text} bg={done?C.lavLight:C.itemBg} sepLine={i<dayChallenges.length-1?C.sepLine:"transparent"} text={C.text} muted={C.muted}/>;})}</SectionCard>}
     </div>
   );
 }
 
-function Todo(){
+function Todo({C,dark}){
   const[tasks,setTasks]=useStorage("tasks",[]);
   const[showForm,setShowForm]=useState(false);
   const[editing,setEditing]=useState(null);
@@ -433,62 +401,52 @@ function Todo(){
   const{onDragStart,onDrop}=useDragList(tasks,setTasks);
   const add=f=>{setTasks(t=>[...t,{id:Date.now(),...f,text:f.text.trim(),done:false,doneMap:{}}]);setShowForm(false);};
   const save=(id,f)=>{setTasks(ts=>ts.map(t=>t.id===id?{...t,...f,text:f.text.trim()}:t));setEditing(null);};
-  const toggle=id=>{
-    setTasks(ts=>ts.map(t=>{
-      if(t.id!==id)return t;
-      if(t.repeat&&t.repeat!=="none"){
-        const today=todayStr();
-        const doneMap={...(t.doneMap||{})};
-        doneMap[today]=!doneMap[today];
-        return{...t,doneMap};
-      }
-      return{...t,done:!t.done};
-    }));
-    setConfetti(x=>x+1);
-  };
+  const toggle=id=>{setTasks(ts=>ts.map(t=>{if(t.id!==id)return t;if(t.repeat&&t.repeat!=="none"){const today=todayStr();const doneMap={...(t.doneMap||{})};doneMap[today]=!doneMap[today];return{...t,doneMap};}return{...t,done:!t.done};}));setConfetti(x=>x+1);};
   const del=id=>setTasks(ts=>ts.filter(t=>t.id!==id));
-  const isTaskDoneToday=t=>{
-    if(t.repeat&&t.repeat!=="none")return!!(t.doneMap&&t.doneMap[todayStr()]);
-    return t.done;
-  };
+  const isTaskDoneToday=t=>{if(t.repeat&&t.repeat!=="none")return!!(t.doneMap&&t.doneMap[todayStr()]);return t.done;};
   const todo=tasks.filter(t=>!isTaskDoneToday(t));
   const done=tasks.filter(t=>isTaskDoneToday(t)&&(!t.repeat||t.repeat==="none"));
   return(
     <div style={{position:"relative"}}>
       <Confetti trigger={confetti}/>
-      <button onClick={()=>setShowForm(!showForm)} style={{width:"100%",background:C.accentLight,border:`1px dashed ${C.border}`,borderRadius:12,padding:"10px",cursor:"pointer",color:C.gold,fontWeight:600,fontSize:13,marginBottom:14,letterSpacing:0.5}}>+ Pridať úlohu</button>
-      {showForm&&<TaskForm onSave={add} onCancel={()=>setShowForm(false)}/>}
-      {todo.length===0&&!showForm&&<div style={{textAlign:"center",color:C.muted,fontSize:12,padding:"16px 0"}}>Žiadne úlohy</div>}
-      {todo.map((t,i)=>{const tc=getTC(t.colorId);
-        return editing===t.id
-          ?<TaskForm key={t.id} initial={t} onSave={f=>save(t.id,f)} onCancel={()=>setEditing(null)}/>
-          :<div key={t.id} draggable onDragStart={()=>onDragStart(i)} onDragOver={e=>{e.preventDefault();e.currentTarget.classList.add("drag-over");}} onDragLeave={e=>e.currentTarget.classList.remove("drag-over")} onDrop={e=>{e.currentTarget.classList.remove("drag-over");onDrop(i);}}
-            style={{display:"flex",alignItems:"flex-start",gap:10,padding:"10px 12px",borderRadius:12,background:C.bg,marginBottom:7,borderLeft:`2px solid ${tc.color}`,cursor:"grab"}}>
-            <span style={{fontSize:14,color:C.border,paddingTop:2,userSelect:"none"}}>⠿</span>
-            <div onClick={()=>toggle(t.id)} style={{width:20,height:20,borderRadius:6,border:`1.5px solid ${C.border}`,background:"#faf7f2",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}/>
-            <div style={{flex:1,cursor:"pointer"}} onClick={()=>setEditing(t.id)}>
-              <div style={{display:"flex",alignItems:"center",gap:6}}>
-                <span style={{fontSize:13,fontWeight:500,color:C.text}}>{t.text}</span>
-                {t.repeat&&t.repeat!=="none"&&<span style={{fontSize:9,background:C.accentLight,color:C.gold,borderRadius:999,padding:"1px 6px",fontWeight:700}}>{REPEAT_LABELS[t.repeat]}</span>}
+      <button onClick={()=>setShowForm(!showForm)} style={{width:"100%",background:C.accentLight,border:`1px dashed ${C.border}`,borderRadius:12,padding:"10px",cursor:"pointer",color:C.gold,fontWeight:600,fontSize:13,marginBottom:14}}>+ Pridať úlohu</button>
+      {showForm&&<TaskForm onSave={add} onCancel={()=>setShowForm(false)} C={C} dark={dark}/>}
+      {todo.length===0&&!showForm&&<div style={{textAlign:"center",color:C.muted,fontSize:12,padding:"20px 0"}}>Žiadne úlohy</div>}
+      {todo.length>0&&<div style={{background:C.card,borderRadius:14,border:`1px solid ${C.border}`,overflow:"hidden",marginBottom:12}}>
+        {todo.map((t,i)=>{
+          const tc=getTC(t.colorId,dark);
+          return editing===t.id
+            ?<div key={t.id} style={{padding:12}}><TaskForm initial={t} onSave={f=>save(t.id,f)} onCancel={()=>setEditing(null)} C={C} dark={dark}/></div>
+            :<div key={t.id} draggable onDragStart={()=>onDragStart(i)} onDragOver={e=>{e.preventDefault();e.currentTarget.style.background=C.accentLight;}} onDragLeave={e=>e.currentTarget.style.background=""} onDrop={e=>{e.currentTarget.style.background="";onDrop(i);}}
+              style={{display:"flex",alignItems:"center",gap:0,borderBottom:i<todo.length-1?`1px solid ${C.sepLine}`:"none",background:C.itemBg,transition:"background .15s",borderLeft:`3px solid ${tc.color}`}}>
+              <div style={{padding:"11px 8px",color:C.border,cursor:"grab",userSelect:"none",fontSize:16}}>⠿</div>
+              <div style={{flex:1,display:"flex",alignItems:"center",gap:12,padding:"11px 14px 11px 4px",cursor:"pointer"}} onClick={()=>setEditing(t.id)}>
+                <div onClick={e=>{e.stopPropagation();toggle(t.id);}} style={{width:22,height:22,borderRadius:6,border:`1.5px solid ${C.border}`,background:"transparent",cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                </div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap"}}>
+                    <span style={{fontSize:13,fontWeight:500,color:C.text}}>{t.text}</span>
+                    {t.repeat&&t.repeat!=="none"&&<span style={{fontSize:9,background:C.accentLight,color:C.gold,borderRadius:999,padding:"1px 6px",fontWeight:700}}>{REPEAT_LABELS[t.repeat]}</span>}
+                  </div>
+                  {t.date&&<div style={{fontSize:10,color:C.muted}}>{new Date(t.date+"T12:00").toLocaleDateString("sk-SK",{day:"numeric",month:"long"})}{t.timeFrom?` · ${t.timeFrom}`:""}{t.timeTo?` – ${t.timeTo}`:""}</div>}
+                  {t.note&&<div style={{fontSize:10,color:C.muted}}>{t.note}</div>}
+                </div>
+                <div style={{width:8,height:8,borderRadius:"50%",background:tc.color,flexShrink:0,opacity:0.8}}/>
               </div>
-              {t.date&&<div style={{fontSize:10,color:C.muted}}>{new Date(t.date+"T12:00").toLocaleDateString("sk-SK",{day:"numeric",month:"long"})}{t.timeFrom?` · ${t.timeFrom}`:""}{t.timeTo?` – ${t.timeTo}`:""}</div>}
-              {t.note&&<div style={{fontSize:10,color:C.muted}}>{t.note}</div>}
-            </div>
-            <button onClick={()=>del(t.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:14,padding:0,flexShrink:0}}>✕</button>
-          </div>;
-      })}
-      {done.length>0&&<details><summary style={{fontSize:11,color:C.muted,cursor:"pointer",marginTop:4}}>Hotové ({done.length})</summary>
-        {done.map(t=><div key={t.id} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 12px",borderRadius:10,opacity:.45,marginBottom:3}}>
-          <div onClick={()=>toggle(t.id)} style={{width:20,height:20,borderRadius:6,background:C.gold,display:"flex",alignItems:"center",justifyContent:"center",color:"#faf7f2",fontSize:11,cursor:"pointer",flexShrink:0}}>✓</div>
-          <span style={{flex:1,fontSize:12,textDecoration:"line-through",color:C.muted}}>{t.text}</span>
-          <button onClick={()=>del(t.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:14}}>✕</button>
-        </div>)}
+              <button onClick={()=>del(t.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:14,padding:"11px 12px"}}>✕</button>
+            </div>;
+        })}
+      </div>}
+      {done.length>0&&<details><summary style={{fontSize:11,color:C.muted,cursor:"pointer",marginBottom:8}}>Hotové ({done.length})</summary>
+        <div style={{background:C.card,borderRadius:14,border:`1px solid ${C.border}`,overflow:"hidden",opacity:0.5,marginTop:6}}>
+          {done.map((t,i)=><CheckRow key={t.id} done={true} onToggle={()=>toggle(t.id)} label={t.text} bg={C.itemBg} sepLine={i<done.length-1?C.sepLine:"transparent"} text={C.text} muted={C.muted}/>)}
+        </div>
       </details>}
     </div>
   );
 }
 
-function Habits(){
+function Habits({C,dark}){
   const[habits,setHabits]=useStorage("habits",[]);
   const[showForm,setShowForm]=useState(false);
   const[editing,setEditing]=useState(null);
@@ -499,10 +457,7 @@ function Habits(){
   const tod=todayStr();
   const now=new Date();
   const dim=daysInMonth(now.getFullYear(),now.getMonth());
-  const monthDays=Array.from({length:dim},(_,i)=>{
-    const d=new Date(now.getFullYear(),now.getMonth(),i+1);
-    return toISO(d);
-  });
+  const monthDays=Array.from({length:dim},(_,i)=>toISO(new Date(now.getFullYear(),now.getMonth(),i+1)));
   const toggleDay=d=>setForm(f=>({...f,days:f.days.includes(d)?f.days.filter(x=>x!==d):[...f.days,d]}));
   const add=()=>{if(!form.name.trim())return;setHabits(h=>[...h,{id:Date.now(),name:form.name.trim(),repeat:form.repeat,days:form.days,checks:{},streak:0,createdAt:tod}]);setForm({name:"",repeat:"daily",days:[]});setShowForm(false);};
   const toggle=id=>{setHabits(hs=>hs.map(h=>{if(h.id!==id)return h;const checks={...(h.checks||{})};checks[tod]=!checks[tod];let streak=0,d=new Date();while(true){const k=toISO(d);if(checks[k]){streak++;d.setDate(d.getDate()-1);}else break;}return{...h,checks,streak};}));setConfetti(x=>x+1);};
@@ -511,47 +466,50 @@ function Habits(){
   const todayHabits=habits.filter(h=>habitDueToday(h,tod));
   const doneToday=todayHabits.filter(h=>h.checks&&h.checks[tod]).length;
   const pct=todayHabits.length?Math.round((doneToday/todayHabits.length)*100):0;
+  const si={width:"100%",border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,marginBottom:8,boxSizing:"border-box",background:C.card,color:C.text,outline:"none"};
   return(
     <div style={{position:"relative"}}>
       <Confetti trigger={confetti}/>
-      {todayHabits.length>0&&<div style={{marginBottom:14}}><div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}><Bar pct={pct} color={C.gold}/><span style={{fontWeight:700,color:C.gold,minWidth:36,fontSize:13}}>{pct}%</span></div><div style={{fontSize:10,color:C.muted}}>{doneToday} z {todayHabits.length} dnes splnených</div></div>}
+      {todayHabits.length>0&&<div style={{marginBottom:14,display:"flex",alignItems:"center",gap:10}}><Bar pct={pct} color={C.gold} C={C}/><span style={{fontWeight:700,color:C.gold,minWidth:36,fontSize:13}}>{pct}%</span></div>}
       <button onClick={()=>setShowForm(!showForm)} style={{width:"100%",background:C.accentLight,border:`1px dashed ${C.border}`,borderRadius:12,padding:"10px",cursor:"pointer",color:C.gold,fontWeight:600,fontSize:13,marginBottom:14}}>+ Pridať návyk</button>
       {showForm&&<div style={{background:C.accentLight,borderRadius:16,padding:14,marginBottom:14}}>
-        <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Názov návyku" style={iStyle}/>
-        <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>{Object.entries(REPEAT_LABELS).filter(([k])=>k!=="none").map(([k,v])=><button key={k} onClick={()=>setForm(f=>({...f,repeat:k}))} style={{padding:"4px 12px",borderRadius:999,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:form.repeat===k?C.gold:C.card,color:form.repeat===k?"#faf7f2":C.muted}}>{v}</button>)}</div>
-        {form.repeat==="custom"&&<div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>{DOW_LABELS.map((d,i)=><button key={i} onClick={()=>toggleDay(i)} style={{width:32,height:32,borderRadius:8,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:form.days.includes(i)?C.gold:C.card,color:form.days.includes(i)?"#faf7f2":C.muted}}>{d}</button>)}</div>}
-        <div style={{display:"flex",gap:8}}><button onClick={add} style={{flex:1,background:C.gold,border:"none",borderRadius:10,padding:"9px",color:"#faf7f2",fontWeight:700,fontSize:13,cursor:"pointer"}}>Pridať</button><button onClick={()=>setShowForm(false)} style={{background:C.border,border:"none",borderRadius:10,padding:"9px 14px",cursor:"pointer",color:C.muted,fontWeight:600}}>Zrušiť</button></div>
+        <input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} placeholder="Názov návyku" style={si}/>
+        <div style={{display:"flex",gap:6,marginBottom:10,flexWrap:"wrap"}}>{Object.entries(REPEAT_LABELS).filter(([k])=>k!=="none").map(([k,v])=><button key={k} onClick={()=>setForm(f=>({...f,repeat:k}))} style={{padding:"4px 12px",borderRadius:999,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:form.repeat===k?"#c9a84c":C.card,color:form.repeat===k?"#1a1208":C.muted}}>{v}</button>)}</div>
+        {form.repeat==="custom"&&<div style={{display:"flex",gap:5,marginBottom:10,flexWrap:"wrap"}}>{DOW_LABELS.map((d,i)=><button key={i} onClick={()=>toggleDay(i)} style={{width:32,height:32,borderRadius:8,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:form.days.includes(i)?"#c9a84c":C.card,color:form.days.includes(i)?"#1a1208":C.muted}}>{d}</button>)}</div>}
+        <div style={{display:"flex",gap:8}}><button onClick={add} style={{flex:1,background:"#c9a84c",border:"none",borderRadius:10,padding:"9px",color:"#1a1208",fontWeight:700,fontSize:13,cursor:"pointer"}}>Pridať</button><button onClick={()=>setShowForm(false)} style={{background:C.border,border:"none",borderRadius:10,padding:"9px 14px",cursor:"pointer",color:C.muted,fontWeight:600}}>Zrušiť</button></div>
       </div>}
-      {habits.length===0&&<div style={{textAlign:"center",color:C.muted,fontSize:12,padding:"16px 0"}}>Žiadne návyky</div>}
+      {habits.length===0&&<div style={{textAlign:"center",color:C.muted,fontSize:12,padding:"20px 0"}}>Žiadne návyky</div>}
       {habits.map((h,i)=>{
         const due=habitDueToday(h,tod),done=!!(h.checks&&h.checks[tod]);
         const doneCnt=monthDays.filter(d=>h.checks&&h.checks[d]).length;
         return(
           <div key={h.id} draggable onDragStart={()=>onDragStart(i)} onDragOver={e=>{e.preventDefault();e.currentTarget.classList.add("drag-over");}} onDragLeave={e=>e.currentTarget.classList.remove("drag-over")} onDrop={e=>{e.currentTarget.classList.remove("drag-over");onDrop(i);}}
-            style={{padding:"12px 14px",borderRadius:16,background:done?C.accentLight:C.bg,marginBottom:8,opacity:due?1:.55,cursor:"grab"}}>
-            {editing===h.id?<div>
-              <input value={editForm.name||h.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} style={{...iStyle,marginBottom:8}}/>
-              <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>{Object.entries(REPEAT_LABELS).filter(([k])=>k!=="none").map(([k,v])=><button key={k} onClick={()=>setEditForm(f=>({...f,repeat:k}))} style={{padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:(editForm.repeat||h.repeat)===k?C.gold:C.card,color:(editForm.repeat||h.repeat)===k?"#faf7f2":C.muted}}>{v}</button>)}</div>
-              <div style={{display:"flex",gap:8}}><button onClick={()=>saveEdit(h.id)} style={{flex:1,background:C.gold,border:"none",borderRadius:10,padding:"8px",color:"#faf7f2",fontWeight:700,cursor:"pointer"}}>Uložiť</button><button onClick={()=>setEditing(null)} style={{background:C.border,border:"none",borderRadius:10,padding:"8px 12px",cursor:"pointer",color:C.muted,fontWeight:600}}>Zrušiť</button></div>
+            style={{background:C.card,borderRadius:14,border:`1px solid ${C.border}`,marginBottom:8,overflow:"hidden",opacity:due?1:.55,cursor:"grab"}}>
+            {editing===h.id?<div style={{padding:12}}>
+              <input value={editForm.name||h.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} style={{...si,marginBottom:8}}/>
+              <div style={{display:"flex",gap:6,marginBottom:8,flexWrap:"wrap"}}>{Object.entries(REPEAT_LABELS).filter(([k])=>k!=="none").map(([k,v])=><button key={k} onClick={()=>setEditForm(f=>({...f,repeat:k}))} style={{padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:(editForm.repeat||h.repeat)===k?"#c9a84c":C.card,color:(editForm.repeat||h.repeat)===k?"#1a1208":C.muted}}>{v}</button>)}</div>
+              <div style={{display:"flex",gap:8}}><button onClick={()=>saveEdit(h.id)} style={{flex:1,background:"#c9a84c",border:"none",borderRadius:10,padding:"8px",color:"#1a1208",fontWeight:700,cursor:"pointer"}}>Uložiť</button><button onClick={()=>setEditing(null)} style={{background:C.border,border:"none",borderRadius:10,padding:"8px 12px",cursor:"pointer",color:C.muted,fontWeight:600}}>Zrušiť</button></div>
             </div>:<>
-              <div style={{display:"flex",alignItems:"center",gap:10}}>
-                <span style={{fontSize:14,color:C.border,userSelect:"none"}}>⠿</span>
-                <div onClick={()=>due&&toggle(h.id)} style={{width:22,height:22,borderRadius:7,border:`1.5px solid ${done?C.gold:C.border}`,background:done?C.gold:"#faf7f2",display:"flex",alignItems:"center",justifyContent:"center",color:"#faf7f2",fontSize:12,cursor:due?"pointer":"default",flexShrink:0}}>{done?"✓":""}</div>
-                <div style={{flex:1,cursor:"pointer"}} onClick={()=>{setEditing(h.id);setEditForm({name:h.name,repeat:h.repeat,days:h.days});}}>
-                  <div style={{fontSize:13,fontWeight:500}}>{h.name}</div>
+              <div style={{display:"flex",alignItems:"center",gap:0,borderBottom:`1px solid ${C.sepLine}`}}>
+                <div style={{padding:"11px 8px",color:C.border,userSelect:"none",fontSize:16}}>⠿</div>
+                <div onClick={()=>due&&toggle(h.id)} style={{width:22,height:22,borderRadius:6,border:`1.5px solid ${done?"#c9a84c":C.border}`,background:done?"#c9a84c":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:due?"pointer":"default",margin:"11px 0"}}>
+                  {done&&<svg width="11" height="8" viewBox="0 0 11 8" fill="none"><polyline points="1,4 4,7 10,1" stroke="#1a1208" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                </div>
+                <div style={{flex:1,padding:"11px 14px 11px 10px",cursor:"pointer"}} onClick={()=>{setEditing(h.id);setEditForm({name:h.name,repeat:h.repeat,days:h.days});}}>
+                  <div style={{fontSize:13,fontWeight:500,color:done?C.muted:C.text,textDecoration:done?"line-through":"none"}}>{h.name}</div>
                   <div style={{fontSize:10,color:C.muted}}>{REPEAT_LABELS[h.repeat]}{h.repeat==="custom"&&h.days?.length?" · "+h.days.map(d=>DOW_LABELS[d]).join(", "):""}</div>
                 </div>
-                <div style={{background:C.accentLight,borderRadius:999,padding:"2px 10px",fontSize:11,color:C.gold,fontWeight:700,border:`1px solid ${C.border}`,whiteSpace:"nowrap"}}>{h.streak||0} 🔥</div>
-                <button onClick={()=>del(h.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:14,padding:0}}>✕</button>
+                <div style={{background:C.accentLight,borderRadius:999,padding:"2px 10px",fontSize:11,color:C.gold,fontWeight:700,margin:"0 12px",whiteSpace:"nowrap"}}>{h.streak||0} 🔥</div>
+                <button onClick={()=>del(h.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:14,padding:"11px 12px"}}>✕</button>
               </div>
-              <div style={{marginTop:9,marginLeft:36}}>
-                <div style={{fontSize:9,color:C.muted,marginBottom:3}}>{SK_MONTHS[now.getMonth()]} · {doneCnt}/{dim}</div>
+              <div style={{padding:"10px 14px"}}>
+                <div style={{fontSize:9,color:C.muted,marginBottom:5,letterSpacing:0.5}}>{SK_MONTHS[now.getMonth()]} · {doneCnt}/{dim}</div>
                 <div style={{display:"flex",gap:2,flexWrap:"wrap"}}>
                   {monthDays.map((day,idx)=>{
                     const isDue=habitDueToday(h,day);
                     const isDone=!!(h.checks&&h.checks[day]);
                     const isFuture=day>tod;
-                    return<div key={idx} style={{width:13,height:13,borderRadius:3,background:isDone?C.gold:isDue&&!isFuture?"#e8dcc8":C.bg,border:`1px solid ${isDue?C.border:"transparent"}`,opacity:isFuture?0.3:1}}/>;
+                    return<div key={idx} style={{width:13,height:13,borderRadius:3,background:isDone?"#c9a84c":isDue&&!isFuture?C.accentLight:C.bg,border:`1px solid ${isDue?C.border:"transparent"}`,opacity:isFuture?0.3:1}}/>;
                   })}
                 </div>
               </div>
@@ -563,7 +521,7 @@ function Habits(){
   );
 }
 
-function Challenges(){
+function Challenges({C,dark}){
   const[challenges,setChallenges]=useStorage("challenges",[]);
   const[text,setText]=useState("");
   const[which,setWhich]=useState("current");
@@ -581,34 +539,55 @@ function Challenges(){
   const del=id=>setChallenges(cs=>cs.filter(c=>c.id!==id));
   const saveEdit=id=>{setChallenges(cs=>cs.map(c=>c.id===id?{...c,text:editText}:c));setEditing(null);};
   const{onDragStart:ods,onDrop:odp}=useDragList(current,arr=>setChallenges(cs=>[...cs.filter(c=>c.week!==currentWeek),...arr]));
-  const Row=({c,canToggle,i})=>editing===c.id
-    ?<div style={{display:"flex",gap:8,marginBottom:8}}><input value={editText} onChange={e=>setEditText(e.target.value)} style={{flex:1,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,background:"#faf7f2",color:C.text,outline:"none"}}/><button onClick={()=>saveEdit(c.id)} style={{background:C.gold,border:"none",borderRadius:10,padding:"8px 12px",color:"#faf7f2",fontWeight:700,cursor:"pointer"}}>✓</button><button onClick={()=>setEditing(null)} style={{background:C.border,border:"none",borderRadius:10,padding:"8px 10px",cursor:"pointer",color:C.muted}}>✕</button></div>
-    :<div draggable={canToggle} onDragStart={()=>canToggle&&ods(i)} onDragOver={e=>{e.preventDefault();e.currentTarget.classList.add("drag-over");}} onDragLeave={e=>e.currentTarget.classList.remove("drag-over")} onDrop={e=>{e.currentTarget.classList.remove("drag-over");canToggle&&odp(i);}}
-      style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:12,background:c.done?C.lavLight:C.bg,marginBottom:7,cursor:canToggle?"grab":"default"}}>
-      {canToggle&&<span style={{fontSize:14,color:C.border,userSelect:"none"}}>⠿</span>}
-      <div onClick={()=>canToggle&&toggle(c.id)} style={{width:20,height:20,borderRadius:6,border:`1.5px solid ${c.done?C.gold:C.border}`,background:c.done?C.gold:"#faf7f2",display:"flex",alignItems:"center",justifyContent:"center",color:"#faf7f2",fontSize:11,cursor:canToggle?"pointer":"default",flexShrink:0,opacity:canToggle?1:0.4}}>{c.done?"✓":""}</div>
-      <span style={{flex:1,fontSize:13,textDecoration:c.done?"line-through":"none",color:c.done?C.muted:C.text,cursor:"pointer"}} onClick={()=>{setEditing(c.id);setEditText(c.text);}}>{c.text}</span>
-      <button onClick={()=>del(c.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:14}}>✕</button>
-    </div>;
   return(
     <div style={{position:"relative"}}>
       <Confetti trigger={confetti}/>
       <div style={{display:"flex",gap:3,marginBottom:14,background:C.accentLight,borderRadius:12,padding:3}}>
-        <button onClick={()=>setWhich("current")} style={{flex:1,padding:"8px 6px",borderRadius:9,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:which==="current"?C.gold:"transparent",color:which==="current"?"#faf7f2":C.muted}}>Tento týždeň</button>
-        <button onClick={()=>setWhich("next")} style={{flex:1,padding:"8px 6px",borderRadius:9,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:which==="next"?C.gold:"transparent",color:which==="next"?"#faf7f2":C.muted}}>Budúci týždeň</button>
+        <button onClick={()=>setWhich("current")} style={{flex:1,padding:"8px 6px",borderRadius:9,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:which==="current"?"#c9a84c":"transparent",color:which==="current"?"#1a1208":C.muted}}>Tento týždeň</button>
+        <button onClick={()=>setWhich("next")} style={{flex:1,padding:"8px 6px",borderRadius:9,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:which==="next"?"#c9a84c":"transparent",color:which==="next"?"#1a1208":C.muted}}>Budúci týždeň</button>
       </div>
       <div style={{display:"flex",gap:8,marginBottom:14}}>
-        <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="Nová výzva..." style={{flex:1,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",fontSize:13,background:"#faf7f2",color:C.text,outline:"none"}}/>
-        <button onClick={add} style={{background:C.gold,border:"none",borderRadius:10,padding:"9px 14px",color:"#faf7f2",fontWeight:700,fontSize:16,cursor:"pointer"}}>+</button>
+        <input value={text} onChange={e=>setText(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="Nová výzva..." style={{flex:1,border:`1px solid ${C.border}`,borderRadius:10,padding:"9px 12px",fontSize:13,background:C.card,color:C.text,outline:"none"}}/>
+        <button onClick={add} style={{background:"#c9a84c",border:"none",borderRadius:10,padding:"9px 14px",color:"#1a1208",fontWeight:700,fontSize:16,cursor:"pointer"}}>+</button>
       </div>
-      {which==="current"&&<>{current.length>0&&<div style={{marginBottom:14}}><div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}><Bar pct={pct} color={C.gold}/><span style={{fontWeight:700,color:C.gold,minWidth:36,fontSize:13}}>{pct}%</span></div></div>}{current.length===0&&<div style={{textAlign:"center",color:C.muted,fontSize:12,padding:"8px 0"}}>Žiadne výzvy</div>}{current.map((c,i)=><Row key={c.id} c={c} canToggle={true} i={i}/>)}</>}
-      {which==="next"&&<>{next.length===0&&<div style={{textAlign:"center",color:C.muted,fontSize:12,padding:"8px 0"}}>Žiadne plánované výzvy</div>}{next.map((c,i)=><Row key={c.id} c={c} canToggle={false} i={i}/>)}</>}
-      {past.length>0&&<details style={{marginTop:8}}><summary style={{fontSize:11,color:C.muted,cursor:"pointer"}}>Minulé ({past.length})</summary>{past.map(c=><div key={c.id} style={{display:"flex",alignItems:"center",gap:8,opacity:.4,marginTop:4,fontSize:12}}><span>{c.done?"✓":"–"}</span><span style={{flex:1,textDecoration:c.done?"line-through":"none"}}>{c.text}</span></div>)}</details>}
+      {which==="current"&&<>
+        {current.length>0&&<div style={{marginBottom:12,display:"flex",alignItems:"center",gap:10}}><Bar pct={pct} color={C.gold} C={C}/><span style={{fontWeight:700,color:C.gold,minWidth:36,fontSize:13}}>{pct}%</span></div>}
+        {current.length===0&&<div style={{textAlign:"center",color:C.muted,fontSize:12,padding:"8px 0"}}>Žiadne výzvy</div>}
+        {current.length>0&&<div style={{background:C.card,borderRadius:14,border:`1px solid ${C.border}`,overflow:"hidden",marginBottom:12}}>
+          {current.map((c,i)=>editing===c.id
+            ?<div key={c.id} style={{padding:12,display:"flex",gap:8}}><input value={editText} onChange={e=>setEditText(e.target.value)} style={{flex:1,border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,background:C.card,color:C.text,outline:"none"}}/><button onClick={()=>saveEdit(c.id)} style={{background:"#c9a84c",border:"none",borderRadius:10,padding:"8px 12px",color:"#1a1208",fontWeight:700,cursor:"pointer"}}>✓</button><button onClick={()=>setEditing(null)} style={{background:C.border,border:"none",borderRadius:10,padding:"8px 10px",cursor:"pointer",color:C.muted}}>✕</button></div>
+            :<div key={c.id} draggable onDragStart={()=>ods(i)} onDragOver={e=>{e.preventDefault();e.currentTarget.style.background=C.accentLight;}} onDragLeave={e=>e.currentTarget.style.background=""} onDrop={e=>{e.currentTarget.style.background="";odp(i);}}
+              style={{display:"flex",alignItems:"center",borderBottom:i<current.length-1?`1px solid ${C.sepLine}`:"none",background:c.done?C.lavLight:C.itemBg,cursor:"grab"}}>
+              <div style={{padding:"11px 8px",color:C.border,userSelect:"none",fontSize:16}}>⠿</div>
+              <div onClick={()=>toggle(c.id)} style={{width:22,height:22,borderRadius:6,border:`1.5px solid ${c.done?"#c9a84c":C.border}`,background:c.done?"#c9a84c":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0,cursor:"pointer",margin:"11px 0"}}>
+                {c.done&&<svg width="11" height="8" viewBox="0 0 11 8" fill="none"><polyline points="1,4 4,7 10,1" stroke="#1a1208" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+              </div>
+              <span style={{flex:1,fontSize:13,padding:"11px 14px 11px 10px",textDecoration:c.done?"line-through":"none",color:c.done?C.muted:C.text,cursor:"pointer"}} onClick={()=>{setEditing(c.id);setEditText(c.text);}}>{c.text}</span>
+              <button onClick={()=>del(c.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:14,padding:"11px 12px"}}>✕</button>
+            </div>
+          )}
+        </div>}
+      </>}
+      {which==="next"&&<>
+        {next.length===0&&<div style={{textAlign:"center",color:C.muted,fontSize:12,padding:"8px 0"}}>Žiadne plánované výzvy</div>}
+        {next.length>0&&<div style={{background:C.card,borderRadius:14,border:`1px solid ${C.border}`,overflow:"hidden",marginBottom:12}}>
+          {next.map((c,i)=><div key={c.id} style={{display:"flex",alignItems:"center",padding:"11px 14px",borderBottom:i<next.length-1?`1px solid ${C.sepLine}`:"none",background:C.itemBg}}>
+            <div style={{width:22,height:22,borderRadius:6,border:`1.5px solid ${C.border}`,flexShrink:0,opacity:0.4,marginRight:12}}/>
+            <span style={{fontSize:13,color:C.muted,flex:1}}>{c.text}</span>
+            <button onClick={()=>del(c.id)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:14}}>✕</button>
+          </div>)}
+        </div>}
+      </>}
+      {past.length>0&&<details style={{marginTop:4}}><summary style={{fontSize:11,color:C.muted,cursor:"pointer"}}>Minulé ({past.length})</summary>
+        <div style={{background:C.card,borderRadius:14,border:`1px solid ${C.border}`,overflow:"hidden",opacity:0.45,marginTop:6}}>
+          {past.map((c,i)=><div key={c.id} style={{display:"flex",alignItems:"center",gap:10,padding:"9px 14px",borderBottom:i<past.length-1?`1px solid ${C.sepLine}`:"none",fontSize:12,color:C.muted}}><span>{c.done?"✓":"–"}</span><span style={{textDecoration:c.done?"line-through":"none"}}>{c.text}</span></div>)}
+        </div>
+      </details>}
     </div>
   );
 }
 
-function Weight(){
+function Weight({C}){
   const[entries,setEntries]=useStorage("weight_entries",[]);
   const[cycleLog,setCycleLog]=useStorage("cycle_log",[]);
   const[form,setForm]=useState({date:todayStr(),weight:"",note:""});
@@ -627,24 +606,24 @@ function Weight(){
   const toY=w=>chartH-((w-minW)/(maxW-minW))*chartH;
   const firstEntry=entries[0],lastEntry=entries[entries.length-1];
   const diff=firstEntry&&lastEntry&&entries.length>1?(lastEntry.weight-firstEntry.weight).toFixed(1):null;
-  const si={border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,background:"#faf7f2",color:C.text,outline:"none"};
+  const si={border:`1px solid ${C.border}`,borderRadius:10,padding:"8px 10px",fontSize:13,background:C.card,color:C.text,outline:"none"};
   return(
     <div>
       <div style={{background:C.accentLight,borderRadius:16,padding:14,marginBottom:14}}>
         <div style={{fontSize:9,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:2,marginBottom:10}}>Zadať hmotnosť</div>
         <div style={{display:"flex",gap:8,marginBottom:8}}><input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} style={{...si,flex:1}}/><input type="number" step="0.1" value={form.weight} onChange={e=>setForm(f=>({...f,weight:e.target.value}))} placeholder="kg" style={{...si,width:70}}/></div>
         <input value={form.note} onChange={e=>setForm(f=>({...f,note:e.target.value}))} placeholder="Poznámka" style={{...si,width:"100%",marginBottom:8,boxSizing:"border-box"}}/>
-        <button onClick={addWeight} style={{width:"100%",background:C.gold,border:"none",borderRadius:10,padding:"9px",color:"#faf7f2",fontWeight:700,fontSize:13,cursor:"pointer"}}>Uložiť</button>
+        <button onClick={addWeight} style={{width:"100%",background:"#c9a84c",border:"none",borderRadius:10,padding:"9px",color:"#1a1208",fontWeight:700,fontSize:13,cursor:"pointer"}}>Uložiť</button>
       </div>
       {diff!==null&&<div style={{display:"flex",gap:10,marginBottom:14}}>
         <div style={{flex:1,background:C.accentLight,borderRadius:12,padding:"12px",textAlign:"center"}}><div style={{fontSize:20,fontWeight:700,color:C.gold}}>{diff>0?"+":""}{diff} kg</div><div style={{fontSize:10,color:C.muted}}>celková zmena</div></div>
-        {lastEntry&&<div style={{flex:1,background:C.bg,borderRadius:12,padding:"12px",textAlign:"center",border:`1px solid ${C.border}`}}><div style={{fontSize:20,fontWeight:700,color:C.accent}}>{lastEntry.weight} kg</div><div style={{fontSize:10,color:C.muted}}>posledný záznam</div></div>}
+        {lastEntry&&<div style={{flex:1,background:C.itemBg,borderRadius:12,padding:"12px",textAlign:"center",border:`1px solid ${C.border}`}}><div style={{fontSize:20,fontWeight:700,color:C.accent}}>{lastEntry.weight} kg</div><div style={{fontSize:10,color:C.muted}}>posledný záznam</div></div>}
       </div>}
       {chartEntries.length>1&&<div style={{marginBottom:14}}>
         <div style={{fontSize:10,fontWeight:700,color:C.gold,letterSpacing:1.5,textTransform:"uppercase",marginBottom:8}}>Graf – 30 dní</div>
         <div style={{overflowX:"auto"}}><svg width={chartW} height={chartH+20} style={{display:"block"}}>
-          <polyline points={chartEntries.map(e=>`${toX(e.date)},${toY(e.weight)}`).join(" ")} fill="none" stroke={C.gold} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"/>
-          {chartEntries.map(e=><circle key={e.date} cx={toX(e.date)} cy={toY(e.weight)} r={2.5} fill={C.gold}/>)}
+          <polyline points={chartEntries.map(e=>`${toX(e.date)},${toY(e.weight)}`).join(" ")} fill="none" stroke="#c9a84c" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"/>
+          {chartEntries.map(e=><circle key={e.date} cx={toX(e.date)} cy={toY(e.weight)} r={2.5} fill="#c9a84c"/>)}
           {cycleLog.filter(c=>last30.includes(c.date)).map(c=><line key={c.date} x1={toX(c.date)} y1={0} x2={toX(c.date)} y2={chartH} stroke={C.lav} strokeWidth={1} strokeDasharray="4,3" opacity="0.6"/>)}
         </svg></div>
       </div>}
@@ -653,18 +632,25 @@ function Weight(){
           <div style={{fontSize:10,fontWeight:700,color:C.gold,letterSpacing:1.5,textTransform:"uppercase"}}>Cyklus</div>
           <button onClick={()=>setShowCycleForm(!showCycleForm)} style={{background:C.accentLight,border:"none",borderRadius:8,padding:"4px 10px",cursor:"pointer",color:C.accent,fontSize:11,fontWeight:600}}>+ Zaznačiť</button>
         </div>
-        {showCycleForm&&<div style={{display:"flex",gap:8,marginBottom:10}}><input type="date" value={cycleDate} onChange={e=>setCycleDate(e.target.value)} style={{...si,flex:1}}/><button onClick={addCycle} style={{background:C.gold,border:"none",borderRadius:10,padding:"8px 14px",color:"#faf7f2",fontWeight:700,cursor:"pointer"}}>✓</button></div>}
-        {cycleLog.slice(-5).reverse().map(c=><div key={c.date} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",background:C.accentLight,borderRadius:8,marginBottom:3,fontSize:12}}><span style={{color:C.accent}}>{new Date(c.date+"T12:00").toLocaleDateString("sk-SK",{day:"numeric",month:"long",year:"numeric"})}</span><button onClick={()=>delCycle(c.date)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:13}}>✕</button></div>)}
+        {showCycleForm&&<div style={{display:"flex",gap:8,marginBottom:10}}><input type="date" value={cycleDate} onChange={e=>setCycleDate(e.target.value)} style={{...si,flex:1}}/><button onClick={addCycle} style={{background:"#c9a84c",border:"none",borderRadius:10,padding:"8px 14px",color:"#1a1208",fontWeight:700,cursor:"pointer"}}>✓</button></div>}
+        {cycleLog.slice(-5).reverse().map(c=><div key={c.date} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 12px",background:C.itemBg,borderRadius:10,marginBottom:4,fontSize:12,border:`1px solid ${C.border}`}}><span style={{color:C.accent}}>{new Date(c.date+"T12:00").toLocaleDateString("sk-SK",{day:"numeric",month:"long",year:"numeric"})}</span><button onClick={()=>delCycle(c.date)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:13}}>✕</button></div>)}
       </div>
       {entries.length>0&&<div>
         <div style={{fontSize:10,fontWeight:700,color:C.gold,letterSpacing:1.5,textTransform:"uppercase",marginBottom:8}}>História</div>
-        {entries.slice(-10).reverse().map(e=><div key={e.date} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 10px",background:C.bg,borderRadius:8,marginBottom:3}}><span style={{fontSize:11,color:C.muted}}>{new Date(e.date+"T12:00").toLocaleDateString("sk-SK",{day:"numeric",month:"short"})}</span><span style={{fontSize:13,fontWeight:600,color:C.text}}>{e.weight} kg</span>{e.note&&<span style={{fontSize:10,color:C.muted,flex:1,textAlign:"center",marginLeft:8}}>{e.note}</span>}<button onClick={()=>delEntry(e.date)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:13}}>✕</button></div>)}
+        <div style={{background:C.card,borderRadius:14,border:`1px solid ${C.border}`,overflow:"hidden"}}>
+          {entries.slice(-10).reverse().map((e,i,arr)=><div key={e.date} style={{display:"flex",alignItems:"center",padding:"9px 14px",borderBottom:i<arr.length-1?`1px solid ${C.sepLine}`:"none"}}>
+            <span style={{fontSize:11,color:C.muted,minWidth:60}}>{new Date(e.date+"T12:00").toLocaleDateString("sk-SK",{day:"numeric",month:"short"})}</span>
+            <span style={{fontSize:13,fontWeight:600,color:C.text,flex:1}}>{e.weight} kg</span>
+            {e.note&&<span style={{fontSize:10,color:C.muted,marginRight:8}}>{e.note}</span>}
+            <button onClick={()=>delEntry(e.date)} style={{background:"none",border:"none",cursor:"pointer",color:C.border,fontSize:13}}>✕</button>
+          </div>)}
+        </div>
       </div>}
     </div>
   );
 }
 
-function Stats(){
+function Stats({C}){
   const[tasks]=useStorage("tasks",[]);
   const[habits]=useStorage("habits",[]);
   const[challenges]=useStorage("challenges",[]);
@@ -679,7 +665,6 @@ function Stats(){
   const maxStreak=habits.reduce((m,h)=>Math.max(m,h.streak||0),0);
   const best=habits.find(h=>h.streak===maxStreak);
   const monthStart=new Date(now.getFullYear(),now.getMonth(),1);
-  const dim=daysInMonth(now.getFullYear(),now.getMonth());
   const monthDays=Array.from({length:now.getDate()},(_,i)=>toISO(new Date(now.getFullYear(),now.getMonth(),i+1)));
   let habitDaysTotal=0,habitDaysDone=0;
   habits.forEach(h=>{monthDays.forEach(day=>{if(habitDueToday(h,day)){habitDaysTotal++;if(h.checks&&h.checks[day])habitDaysDone++;}});});
@@ -693,29 +678,29 @@ function Stats(){
   const monthWeight=weightEntries.filter(e=>e.date>=toISO(monthStart)&&e.date<=tod);
   const firstW=monthWeight[0],lastW=monthWeight[monthWeight.length-1];
   const weightDiff=firstW&&lastW&&monthWeight.length>1?(lastW.weight-firstW.weight).toFixed(1):null;
-  const SLabel=({children})=><div style={{fontSize:9,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:2,marginBottom:12}}>{children}</div>;
+  const SL=({c})=><div style={{fontSize:9,fontWeight:700,color:C.gold,textTransform:"uppercase",letterSpacing:2,marginBottom:10,marginTop:20}}>{c}</div>;
   const StatRow=({label,done,total,color})=>(
-    <div style={{marginBottom:12}}>
+    <div style={{marginBottom:10}}>
       <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.text}}>{label}</span><span style={{fontSize:12,fontWeight:700,color}}>{done}/{total} · {total?Math.round((done/total)*100):0}%</span></div>
-      <Bar pct={total?Math.round((done/total)*100):0} color={color}/>
+      <Bar pct={total?Math.round((done/total)*100):0} color={color} C={C}/>
     </div>
   );
   return(
     <div>
-      <SLabel>Dnes</SLabel>
+      <SL c="Dnes"/>
       <StatRow label="Návyky" done={doneH} total={todayH.length||1} color={C.gold}/>
       <StatRow label="Úlohy" done={doneTasks} total={tasks.length||1} color={C.accent}/>
       <StatRow label="Výzvy" done={doneWC} total={weekC.length||1} color={C.lav}/>
-      <div style={{background:C.accentLight,borderRadius:14,padding:14,marginTop:4,marginBottom:24,border:`1px solid ${C.border}`}}>
+      <div style={{background:C.accentLight,borderRadius:14,padding:14,marginTop:14,border:`1px solid ${C.border}`}}>
         <div style={{fontSize:9,color:C.muted,letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}}>Najdlhší streak</div>
         <div style={{fontSize:28,fontWeight:700,color:C.gold}}>{maxStreak} <span style={{fontSize:14,fontWeight:400}}>dní</span></div>
         {best&&<div style={{fontSize:11,color:C.muted,marginTop:2}}>{best.name}</div>}
       </div>
-      <SLabel>Zhrnutie – {SK_MONTHS[now.getMonth()]} {now.getFullYear()}</SLabel>
-      {habits.length>0&&<div style={{marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.text}}>Návyky</span><span style={{fontSize:12,fontWeight:700,color:C.gold}}>{habitDaysDone}/{habitDaysTotal} · {habitMonthPct}%</span></div><Bar pct={habitMonthPct} color={C.gold}/><div style={{fontSize:10,color:C.muted,marginTop:4}}>{habitMonthPct>=80?"Výborný mesiac.":habitMonthPct>=50?"Dobrý progres.":"Je priestor na zlepšenie."}</div></div>}
-      {monthTasks.length>0&&<div style={{marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.text}}>Úlohy</span><span style={{fontSize:12,fontWeight:700,color:C.accent}}>{monthTasksDone}/{monthTasks.length} · {Math.round((monthTasksDone/monthTasks.length)*100)}%</span></div><Bar pct={Math.round((monthTasksDone/monthTasks.length)*100)} color={C.accent}/></div>}
-      {monthChallenges.length>0&&<div style={{marginBottom:12}}><div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}><span style={{fontSize:12,color:C.text}}>Výzvy</span><span style={{fontSize:12,fontWeight:700,color:C.lav}}>{monthChallengesDone}/{monthChallenges.length} · {Math.round((monthChallengesDone/monthChallenges.length)*100)}%</span></div><Bar pct={Math.round((monthChallengesDone/monthChallenges.length)*100)} color={C.lav}/></div>}
-      {weightDiff!==null&&<div style={{background:C.accentLight,borderRadius:14,padding:14,marginTop:4,border:`1px solid ${C.border}`}}><div style={{fontSize:9,color:C.muted,letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}}>Forma</div><div style={{fontSize:22,fontWeight:700,color:C.gold}}>{weightDiff>0?"+":""}{weightDiff} kg</div><div style={{fontSize:10,color:C.muted,marginTop:2}}>{firstW.weight} → {lastW.weight} kg</div></div>}
+      <SL c={`Zhrnutie – ${SK_MONTHS[now.getMonth()]} ${now.getFullYear()}`}/>
+      {habits.length>0&&<div style={{marginBottom:10}}><StatRow label="Návyky" done={habitDaysDone} total={habitDaysTotal||1} color={C.gold}/><div style={{fontSize:10,color:C.muted,marginTop:2}}>{habitMonthPct>=80?"Výborný mesiac.":habitMonthPct>=50?"Dobrý progres.":"Je priestor na zlepšenie."}</div></div>}
+      {monthTasks.length>0&&<StatRow label="Úlohy" done={monthTasksDone} total={monthTasks.length} color={C.accent}/>}
+      {monthChallenges.length>0&&<StatRow label="Výzvy" done={monthChallengesDone} total={monthChallenges.length} color={C.lav}/>}
+      {weightDiff!==null&&<div style={{background:C.accentLight,borderRadius:14,padding:14,marginTop:14,border:`1px solid ${C.border}`}}><div style={{fontSize:9,color:C.muted,letterSpacing:1.5,textTransform:"uppercase",marginBottom:4}}>Forma</div><div style={{fontSize:22,fontWeight:700,color:C.gold}}>{weightDiff>0?"+":""}{weightDiff} kg</div><div style={{fontSize:10,color:C.muted,marginTop:2}}>{firstW.weight} → {lastW.weight} kg</div></div>}
     </div>
   );
 }
@@ -730,6 +715,8 @@ const TABS=[
 ];
 
 function App(){
+  const[dark,setDark]=useTheme();
+  const C=useC(dark);
   const[tab,setTab]=useState("calendar");
   const now=new Date();
   const dateLabel=now.toLocaleDateString("sk-SK",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
@@ -737,24 +724,24 @@ function App(){
   const todayName=SK_NAMES[nameKey];
   const quote=getDailyQuote();
   return(
-    <div style={{minHeight:"100vh",background:"linear-gradient(160deg,#f0e8d8 0%,#ede4d0 100%)",fontFamily:"sans-serif",color:C.text}}>
-      <SmokeHeader dateLabel={dateLabel} todayName={todayName} quote={quote}/>
+    <div style={{minHeight:"100vh",background:C.bg,fontFamily:"sans-serif",color:C.text,transition:"background .3s,color .3s"}}>
+      <SmokeHeader dateLabel={dateLabel} todayName={todayName} quote={quote} dark={dark} setDark={setDark} C={C}/>
       <div style={{maxWidth:600,margin:"-20px auto 0",padding:"0 clamp(8px,3vw,16px) 40px",position:"relative",zIndex:2}}>
-        <div style={{background:C.card,borderRadius:24,boxShadow:"0 4px 40px rgba(100,70,20,.10)",border:`1px solid ${C.border}`,overflow:"hidden"}}>
+        <div style={{background:C.card,borderRadius:24,boxShadow:dark?"0 4px 40px rgba(0,0,0,.4)":"0 4px 40px rgba(100,70,20,.10)",border:`1px solid ${C.border}`,overflow:"hidden",transition:"background .3s,border .3s"}}>
           <div style={{display:"flex",background:C.smoke,borderBottom:`1px solid ${C.border}`,overflowX:"auto"}}>
             {TABS.map(t=>(
-              <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:"0 0 auto",padding:"13px clamp(6px,2vw,10px)",border:"none",background:"transparent",cursor:"pointer",fontSize:"clamp(8px,2.2vw,10px)",fontWeight:700,color:tab===t.id?C.gold:C.muted,borderBottom:tab===t.id?`2px solid ${C.gold}`:"2px solid transparent",whiteSpace:"nowrap",letterSpacing:0.3,textTransform:"uppercase"}}>
+              <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:"0 0 auto",padding:"13px clamp(6px,2vw,10px)",border:"none",background:"transparent",cursor:"pointer",fontSize:"clamp(8px,2.2vw,10px)",fontWeight:700,color:tab===t.id?C.gold:C.muted,borderBottom:tab===t.id?`2px solid ${C.gold}`:"2px solid transparent",whiteSpace:"nowrap",letterSpacing:0.3,textTransform:"uppercase",transition:"color .2s"}}>
                 {t.label}
               </button>
             ))}
           </div>
           <div style={{padding:"clamp(14px,4vw,22px) clamp(12px,4vw,18px)"}}>
-            {tab==="calendar"&&<><Calendar/><TodayPanel/></>}
-            {tab==="todo"&&<Todo/>}
-            {tab==="habits"&&<Habits/>}
-            {tab==="challenges"&&<Challenges/>}
-            {tab==="weight"&&<Weight/>}
-            {tab==="stats"&&<Stats/>}
+            {tab==="calendar"&&<><Calendar C={C} dark={dark}/><TodayPanel C={C} dark={dark}/></>}
+            {tab==="todo"&&<Todo C={C} dark={dark}/>}
+            {tab==="habits"&&<Habits C={C} dark={dark}/>}
+            {tab==="challenges"&&<Challenges C={C} dark={dark}/>}
+            {tab==="weight"&&<Weight C={C}/>}
+            {tab==="stats"&&<Stats C={C}/>}
           </div>
         </div>
       </div>

@@ -12,7 +12,7 @@
   <title>Môj Dashboard</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0;}
     body{font-family:sans-serif;-webkit-tap-highlight-color:transparent;transition:background .3s;}
@@ -28,7 +28,7 @@
 <body class="light">
 <div id="root"></div>
 <script>if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');</script>
-<script type="text/babel">
+<script type="text/babel" data-presets="react">
 const {useState,useEffect,useRef,useCallback}=React;
 
 // ── IndexedDB storage (survives history clear) ──
@@ -225,7 +225,7 @@ function TaskForm({initial,onSave,onCancel,C}){
       </div>
       <div style={{fontSize:10,color:C.muted,marginBottom:6,letterSpacing:1,textTransform:"uppercase"}}>Opakovanie</div>
       <div style={{display:"flex",gap:5,marginBottom:8,flexWrap:"wrap"}}>
-        {[["none","Raz"],["daily","Denne"],["weekly","Týžd."],["custom","Vlastné"]].map(([k,v])=>(
+        {[["none","Raz"],["daily","Denne"],["weekly","Týždenne"],["custom","Vlastné"]].map(([k,v])=>(
           <button key={k} onClick={()=>setF(x=>({...x,repeat:k}))} style={{padding:"4px 10px",borderRadius:999,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,background:f.repeat===k?"#c9a84c":C.card,color:f.repeat===k?"#1a1208":C.muted}}>{v}</button>
         ))}
       </div>

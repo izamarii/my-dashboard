@@ -12,7 +12,7 @@
   <title>Môj Dashboard</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js" data-presets="react"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0;}
     body{font-family:sans-serif;-webkit-tap-highlight-color:transparent;transition:background .3s;}
@@ -28,7 +28,7 @@
 <body class="light">
 <div id="root"></div>
 <script>if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js');</script>
-<script type="text/babel">
+<script type="text/babel" data-type="module" data-presets="react,env">
 const {useState,useEffect,useRef,useCallback}=React;
 
 // ── IndexedDB ──

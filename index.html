@@ -133,7 +133,7 @@ const daysInMonth=(y,m)=>new Date(y,m+1,0).getDate();
 const getWeekNum=d=>{const dt=new Date(d);dt.setHours(12,0,0,0);const day=dt.getDay()||7;dt.setDate(dt.getDate()+4-day);const yearStart=new Date(dt.getFullYear(),0,1);return Math.ceil((((dt-yearStart)/86400000)+1)/7);};
 const weekMonday=dateStr=>{const d=new Date(dateStr+"T12:00");d.setDate(d.getDate()-monOffset(d.getDay()));return toISO(d);};
 
-const REPEAT_OPTIONS=[["daily","Denne"],["xweek","x-krát/týždeň"],["weekly","Týždenne"],["custom","Vlastné dni"]]; // kept for task forms
+const REPEAT_OPTIONS=[["daily","Denne"],["xweek","Počet dní v týždni"],["weekly","Týždenne"],["custom","Vlastné dni"]]; // kept for task forms
 
 const taskDueOn=(t,dateStr)=>{
   if(!t.repeat||t.repeat==="none")return t.date===dateStr;
